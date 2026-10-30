@@ -1,0 +1,10 @@
+# 위젯 설정 파일 — 세션 키·토큰이 들어 있으니 절대 커밋하지 마세요
+.claude_usage_widget.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS
+.DS_Store
+Thumbs.db
