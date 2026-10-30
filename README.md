@@ -8,6 +8,7 @@
 ![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
 ![iOS](https://img.shields.io/badge/iOS-Scriptable-1C1C1E?logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3-3776AB?logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 <img src="docs/images/banner.png" width="100%" alt="스플릿 플랩 위젯의 미니 모드와 자세히 보기 모드">
 
@@ -552,6 +553,7 @@ llm-usage/
 │   ├── images/                     # README 이미지·스크린샷
 │   └── 작업정리.md                  # 개발 과정 기록
 ├── requirements.txt                # 데스크톱 위젯 필요 패키지
+├── LICENSE                         # MIT 라이선스
 └── README.md
 ```
 
@@ -566,6 +568,11 @@ llm-usage/
 - 정확한 사용량은 언제나 각 사이트에서 확인할 수 있습니다.
   - Claude: claude.ai → 설정 → 사용량
   - ChatGPT: [chatgpt.com/codex/settings/usage](https://chatgpt.com/codex/settings/usage)
+
+## 라이선스
+
+[MIT 라이선스](LICENSE)입니다. 개인·회사 상관없이 자유롭게 쓰고, 고치고, 다시 배포할 수 있습니다. 다시 배포할 때는 저작권 표시와 라이선스 문구를 함께 넣어 주십시오.
+이 소프트웨어는 있는 그대로 제공되며, 사용으로 생긴 문제(계정 제한 등)에 대해 책임지지 않습니다.
 
 ---
 
