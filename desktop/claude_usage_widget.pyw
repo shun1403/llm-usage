@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-AI 사용량 위젯 v3 — Claude + ChatGPT 링 게이지 (Windows / macOS)
+AI 사용량 위젯 v4 — Claude + ChatGPT 다이얼 게이지 (Windows / macOS)
 
-각 서비스마다 링 두 개:
+각 서비스마다 아래가 열린 270° 링 두 개:
   Claude   바깥 = 현재 세션(5시간), 안쪽 = 주간 한도
   ChatGPT  바깥 = 짧은 주기 한도(있을 때), 안쪽 = 주간 한도  (Codex 사용량 페이지와 같은 값)
 링 위의 흰 점은 "리셋 주기 중 지금까지 흐른 시간"이에요.
@@ -53,26 +53,28 @@ IS_MAC = sys.platform == "darwin"
 CONFIG_PATH = Path.home() / ".claude_usage_widget.json"   # 이전 버전 설정을 그대로 이어 써요
 REFRESH_SEC = 120
 
-PANEL = "#161A23"
-BORDER = "#2A3142"
-TRACK = "#242A37"
-FG = "#EEF1F6"
-MUTED = "#8A93A6"
-DIM = "#5C6578"
-GOOD = "#6EE7A8"
-BAD = "#FF5C7A"
-BTN_BG = "#222836"
-BTN_HOVER = "#313A4D"
+BG = "#0D0F14"        # 창 바탕
+CARD = "#161920"      # 서비스 카드
+BORDER = "#262B36"
+TRACK = "#242833"
+FG = "#F2F4F8"
+MUTED = "#8D95A7"
+DIM = "#5A6273"
+GOOD = "#34D399"
+BAD = "#FB7185"
+BTN_BG = "#1C2029"
+BTN_HOVER = "#2C3240"
 
 PROVIDERS = ("claude", "gpt")
 NAMES = {"claude": "Claude", "gpt": "ChatGPT"}
 MINI_NAMES = {"claude": "Claude", "gpt": "GPT"}
+BRAND = {"claude": "#D97757", "gpt": "#10A37F"}   # 카드 제목 옆 점
 PALETTES = {                                   # [바깥 링, 안쪽 링] 각각 (시작색, 끝색)
-    "claude": [("#5EE7DF", "#3FA3FF"), ("#B18CFF", "#FF7EB6")],
-    "gpt": [("#C2F27C", "#2FD48F"), ("#8FE3FF", "#8B7CFF")],
+    "claude": [("#DDC4FF", "#8B5CF6"), ("#A9CCFF", "#5B6CF0")],   # 보라, 남색
+    "gpt": [("#B4F5D6", "#10B981"), ("#B2F1FA", "#06A6CC")],      # 초록, 청록
 }
-WARN_PALETTE = ("#FFD36E", "#FF9F43")      # 70% 이상
-DANGER_PALETTE = ("#FF8A7A", "#FF3D6E")    # 90% 이상
+WARN_PALETTE = ("#FDE68A", "#F59E0B")      # 70% 이상
+DANGER_PALETTE = ("#FDA4AF", "#F43F5E")    # 90% 이상
 
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
@@ -436,6 +438,11 @@ def lerp(c1, c2, t):
     return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
 
 
+def mix(h1, h2, t):
+    """두 색을 섞은 hex 색 (t=0이면 h1, t=1이면 h2)"""
+    return "#%02X%02X%02X" % lerp(hex_rgb(h1), hex_rgb(h2), t)
+
+
 def palette_for(provider, slot, pct):
     if pct >= 90:
         return DANGER_PALETTE
@@ -444,10 +451,18 @@ def palette_for(provider, slot, pct):
     return PALETTES[provider][slot]
 
 
-def render_rings(size, rings, ss=3):
+def accent(palette):
+    """글자·점에 쓰는 색 — 어두운 바탕에서도 잘 읽히도록 그라데이션 중간보다 밝은 쪽"""
+    return mix(palette[0], palette[1], 0.55)
+
+
+DIAL_START, DIAL_SWEEP = 135.0, 270.0   # 아래쪽이 열린 270° 다이얼 (7시 반 → 4시 반 방향)
+
+
+def render_dial(size, rings, bg, ss=3):
     n = size * ss
     c = n / 2
-    base = Image.new("RGB", (n, n), hex_rgb(PANEL))
+    base = Image.new("RGB", (n, n), hex_rgb(bg))
     draw = ImageDraw.Draw(base)
 
     def box(r, w):
@@ -458,9 +473,15 @@ def render_rings(size, rings, ss=3):
         a = math.radians(ang)
         return c + r * math.cos(a), c + r * math.sin(a)
 
+    def caps(d, r, w, angles, fill):
+        for ang in angles:
+            x, y = point(r, ang)
+            d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=fill)
+
     for rg in rings:
         r, w = rg["radius"] * ss, rg["width"] * ss
-        draw.arc(box(r, w), 0, 360, fill=hex_rgb(TRACK), width=int(w))
+        draw.arc(box(r, w), DIAL_START, DIAL_START + DIAL_SWEEP, fill=hex_rgb(TRACK), width=int(w))
+        caps(draw, r, w, (DIAL_START, DIAL_START + DIAL_SWEEP), hex_rgb(TRACK))
 
     fills = []
     for rg in rings:
@@ -469,7 +490,7 @@ def render_rings(size, rings, ss=3):
             continue
         r, w = rg["radius"] * ss, rg["width"] * ss
         c1, c2 = (hex_rgb(x) for x in rg["colors"])
-        start, span = -90.0, 360.0 * frac
+        start, span = DIAL_START, DIAL_SWEEP * frac
         end = start + span
         mask = Image.new("L", (n, n), 0)
         md = ImageDraw.Draw(mask)
@@ -490,7 +511,7 @@ def render_rings(size, rings, ss=3):
         k = 4
         small = mask.resize((n // k, n // k), Image.BILINEAR)
         blur = small.filter(ImageFilter.GaussianBlur(rg["width"] * ss * 0.5 / k))
-        glow = blur.resize((n, n), Image.BILINEAR).point(lambda v: int(v * 0.55))
+        glow = blur.resize((n, n), Image.BILINEAR).point(lambda v: int(v * 0.4))
         base.paste(grad, (0, 0), glow)
 
     for rg, mask, grad in fills:
@@ -500,28 +521,30 @@ def render_rings(size, rings, ss=3):
         if rg.get("marker") is None:
             continue
         r, w = rg["radius"] * ss, rg["width"] * ss
-        x, y = point(r, -90 + 360 * rg["marker"])
+        x, y = point(r, DIAL_START + DIAL_SWEEP * rg["marker"])
         d = w * 0.2
-        draw.ellipse([x - d, y - d, x + d, y + d], fill=(240, 244, 250))
+        draw.ellipse([x - d, y - d, x + d, y + d], fill=(244, 246, 250))
 
     return base.resize((size, size), Image.LANCZOS)
 
 
 def ring_geometry(tile):
-    w = tile * 0.08
-    margin = w * 1.1
+    w = tile * 0.085
+    margin = w * 0.9
     r1 = tile / 2 - w / 2 - margin
-    r2 = r1 - w - tile * 0.03
+    r2 = r1 - w - tile * 0.028
     return (r1, w), (r2, w)
 
 
 # ─── 위젯 ─────────────────────────────────────────────
 class Widget:
-    WIDTH = 340      # 자세히 보기 폭
-    SEC_H = 160      # 서비스 한 칸 높이
-    FOOT_H = 28
-    TILE = 140
-    MINI = 96
+    WIDTH = 360      # 자세히 보기 폭
+    PAD = 10         # 창 가장자리 ~ 카드
+    CARD_H = 156     # 서비스 카드 높이
+    GAP = 8          # 카드 사이 간격
+    FOOT_H = 30
+    TILE = 124
+    MINI = 100
 
     def __init__(self):
         from PIL import ImageTk
@@ -572,6 +595,8 @@ class Widget:
         self._size = None
         self._panel_cache = {}
         self._ring_cache = {}
+        self._shape_cache = {}
+        self._font_cache = {}
 
         self.build()
         self.root.deiconify()
@@ -605,9 +630,9 @@ class Widget:
             except tk.TclError:
                 pass
         if not self.alpha_mode:
-            r.configure(bg=PANEL)
+            r.configure(bg=BG)
 
-        self.canvas = tk.Canvas(r, bg="systemTransparent" if self.alpha_mode else PANEL,
+        self.canvas = tk.Canvas(r, bg="systemTransparent" if self.alpha_mode else BG,
                                 highlightthickness=0, bd=0)
         self.canvas.pack()
         r.geometry(f"+{self.cfg.get('x', 40)}+{self.cfg.get('y', 40)}")
@@ -658,37 +683,69 @@ class Widget:
             pass
 
     def panel_photo(self, w, h):
-        key = (w, h, self.alpha_mode)
+        n = 0 if self.compact else len(self.providers())
+        key = (w, h, self.alpha_mode, n)
         if key not in self._panel_cache:
+            S, ss = self.S, 3
+            img = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0) if self.alpha_mode else hex_rgb(BG) + (255,))
+            d = ImageDraw.Draw(img)
+            line = max(1, int(S * ss))
             if self.alpha_mode:
-                ss = 3
-                img = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
-                ImageDraw.Draw(img).rounded_rectangle(
-                    [0, 0, w * ss - 1, h * ss - 1], radius=int(18 * self.S * ss),
-                    fill=hex_rgb(PANEL) + (255,), outline=hex_rgb(BORDER) + (255,),
-                    width=max(1, int(self.S * ss)))
-                img = img.resize((w, h), Image.LANCZOS)
-            else:
-                img = Image.new("RGB", (w, h), hex_rgb(PANEL))
-            self._panel_cache[key] = self.ImageTk.PhotoImage(img)
+                d.rounded_rectangle([0, 0, w * ss - 1, h * ss - 1], radius=int(18 * S * ss),
+                                    fill=hex_rgb(BG) + (255,), outline=hex_rgb(BORDER) + (255,), width=line)
+            for i in range(n):  # 서비스 카드
+                x0, y0, x1, y1 = self.card_box(i)
+                d.rounded_rectangle([x0 * ss, y0 * ss, x1 * ss - 1, y1 * ss - 1], radius=int(14 * S * ss),
+                                    fill=hex_rgb(CARD) + (255,), outline=hex_rgb(BORDER) + (255,), width=line)
+            img = img.resize((w, h), Image.LANCZOS)
+            self._panel_cache[key] = self.ImageTk.PhotoImage(img if self.alpha_mode else img.convert("RGB"))
         return self._panel_cache[key]
+
+    def shape_photo(self, kind, w, h, fill, bg, outline=None):
+        """부드러운 가장자리의 점(dot)·알약(pill) 이미지"""
+        key = (kind, w, h, fill, bg, outline)
+        if key not in self._shape_cache:
+            ss = 4
+            img = Image.new("RGB", (w * ss, h * ss), hex_rgb(bg))
+            d = ImageDraw.Draw(img)
+            box = [0, 0, w * ss - 1, h * ss - 1]
+            if kind == "dot":
+                d.ellipse(box, fill=hex_rgb(fill))
+            else:
+                d.rounded_rectangle(box, radius=h * ss // 2, fill=hex_rgb(fill),
+                                    outline=hex_rgb(outline) if outline else None,
+                                    width=max(1, int(self.S * ss)))
+            self._shape_cache[key] = self.ImageTk.PhotoImage(img.resize((w, h), Image.LANCZOS))
+        return self._shape_cache[key]
+
+    def font(self, size, bold=False, num=False):
+        key = (size, bold, num)
+        if key not in self._font_cache:
+            self._font_cache[key] = tkfont.Font(root=self.root, family=self.num_font if num else self.txt_font,
+                                                size=size, weight="bold" if bold else "normal")
+        return self._font_cache[key]
 
     # ── 크기 계산
     def dims(self):
         S, n = self.S, len(self.providers())
         if self.compact:
             return int(self.MINI * S * n), int(self.MINI * S)
-        return int(self.WIDTH * S), int((self.SEC_H * n + self.FOOT_H) * S)
+        return int(self.WIDTH * S), int((self.PAD + n * self.CARD_H + (n - 1) * self.GAP + self.FOOT_H) * S)
+
+    def card_box(self, i):
+        S = self.S
+        y0 = int((self.PAD + i * (self.CARD_H + self.GAP)) * S)
+        return int(self.PAD * S), y0, int((self.WIDTH - self.PAD) * S), y0 + int(self.CARD_H * S)
 
     def button_pos(self):
         S = self.S
         W, H = self.dims()
         if self.compact:
-            return W - 14 * S, H - 14 * S, 8 * S
-        return W - 18 * S, H - self.FOOT_H * S / 2 - 2 * S, 9 * S
+            return W - 13 * S, H - 13 * S, 8 * S
+        return W - (self.PAD + 12) * S, H - self.FOOT_H * S / 2, 10 * S
 
-    # ── 링 이미지
-    def ring_photo(self, p, tile):
+    # ── 다이얼 이미지
+    def ring_photo(self, p, tile, bg):
         geo = ring_geometry(tile)
         wins = self.data[p]["windows"][:2]
         specs = []
@@ -702,13 +759,13 @@ class Widget:
             elif not wins or slot == 0:
                 specs.append({"radius": radius, "width": width, "frac": 0,
                               "colors": PALETTES[p][slot], "marker": None})
-        key = (p, tile, self.alpha_mode, tuple(
+        key = (p, tile, bg, self.alpha_mode, tuple(
             (round(s["frac"], 3), s["colors"], None if s["marker"] is None else round(s["marker"], 3))
             for s in specs))
         if key not in self._ring_cache:
             if len(self._ring_cache) > 60:
                 self._ring_cache.clear()
-            img = render_rings(tile, specs)
+            img = render_dial(tile, specs, bg)
             if self.alpha_mode:
                 circle = Image.new("L", img.size, 0)
                 ImageDraw.Draw(circle).ellipse([1, 1, tile - 2, tile - 2], fill=255)
@@ -732,76 +789,96 @@ class Widget:
             if self.compact:
                 tile = int(self.MINI * S)
                 tx, ty = i * tile, 0
-            else:
-                tile = int(self.TILE * S)
-                y0 = int(i * self.SEC_H * S)
-                tx, ty = int(4 * S), y0 + (int(self.SEC_H * S) - tile) // 2
-                if i > 0:
-                    cv.create_line(16 * S, y0, W - 16 * S, y0, fill=BORDER)
-            cv.create_image(tx, ty, anchor="nw", image=self.ring_photo(p, tile))
-            self.draw_center(p, tx + tile / 2, ty + tile / 2)
-            if not self.compact:
-                self.draw_section(p, int(i * self.SEC_H * S), tx + tile + int(4 * S), W)
+                cv.create_image(tx, ty, anchor="nw", image=self.ring_photo(p, tile, BG))
+                self.draw_center(p, tx + tile / 2, ty + tile / 2, tile)
+                continue
+            x0, y0, x1, y1 = self.card_box(i)
+            tile = int(self.TILE * S)
+            tx, ty = x0 + int(6 * S), y0 + (y1 - y0 - tile) // 2
+            cv.create_image(tx, ty, anchor="nw", image=self.ring_photo(p, tile, CARD))
+            self.draw_center(p, tx + tile / 2, ty + tile / 2, tile)
+            self.draw_section(p, y0, tx + tile + int(8 * S), x1 - int(14 * S), y1)
 
         if not self.compact and self.last_ok:
-            cv.create_text(W - 32 * S, H - self.FOOT_H * S / 2 - 2 * S, text=f"{self.last_ok:%H:%M} 업데이트",
-                           anchor="e", fill=DIM, font=(self.txt_font, 8))
+            bx, by, br = self.button_pos()
+            cv.create_text(bx - br - 8 * S, by, text=f"{self.last_ok:%H:%M} 업데이트",
+                           anchor="e", fill=DIM, font=self.font(8))
         self.draw_button()
 
-    def draw_center(self, p, cx, cy):
+    def draw_number(self, cx, cy, pct, big, small, color=FG):
+        """'34%' — 숫자는 크게, %는 작게, 밑줄(기준선)을 맞춰서 가운데에"""
+        cv = self.canvas
+        fb, fs = self.font(big, True, True), self.font(small, True, True)
+        num = f"{pct:.0f}"
+        nw, pw = fb.measure(num), fs.measure("%")
+        left = cx - (nw + pw) / 2
+        base = cy + fb.metrics("ascent") * 0.36
+        cv.create_text(left, base + fb.metrics("descent"), text=num, anchor="sw", fill=color, font=fb)
+        cv.create_text(left + nw, base + fs.metrics("descent"), text="%", anchor="sw", fill=MUTED, font=fs)
+
+    def draw_center(self, p, cx, cy, tile):
         cv, S = self.canvas, self.S
         d = self.data[p]
         first = d["windows"][0] if d["windows"] else None
-        if self.compact:
-            if first:
-                pct = self.shown.get((p, first["key"]), 0.0)
-                cv.create_text(cx, cy - 5 * S, text=f"{pct:.0f}", fill=FG, font=(self.num_font, 13, "bold"))
-            else:
-                mark, col = ("!", BAD) if d["error"] and not d["notice"] else ("···" if p in self.fetching else "–", MUTED)
-                cv.create_text(cx, cy - 5 * S, text=mark, fill=col, font=(self.num_font, 12, "bold"))
-            cv.create_text(cx, cy + 10 * S, text=MINI_NAMES[p], fill=MUTED, font=(self.txt_font, 7))
-            return
+        mini = self.compact
+        label_y = cy + tile * (0.33 if mini else 0.31)
         if first:
             pct = self.shown.get((p, first["key"]), 0.0)
-            cv.create_text(cx, cy - 6 * S, text=f"{pct:.0f}%", fill=FG, font=(self.num_font, 17, "bold"))
-            cv.create_text(cx, cy + 14 * S, text=first["short"], fill=MUTED, font=(self.txt_font, 8))
-        elif d["error"] and not d["notice"]:
-            cv.create_text(cx, cy, text="!", fill=BAD, font=(self.num_font, 18, "bold"))
+            self.draw_number(cx, cy - (1 if mini else 2) * S, pct, 14 if mini else 20, 7 if mini else 10)
         else:
-            cv.create_text(cx, cy, text="···" if p in self.fetching else "–", fill=MUTED,
-                           font=(self.num_font, 14, "bold"))
+            mark, col = ("!", BAD) if d["error"] and not d["notice"] else ("···" if p in self.fetching else "–", MUTED)
+            cv.create_text(cx, cy - 1 * S, text=mark, fill=col, font=self.font(14 if mini else 18, True, True))
+        label = MINI_NAMES[p] if mini else (first["short"] if first else "")
+        if label:
+            cv.create_text(cx, label_y, text=label, fill=MUTED, font=self.font(7 if mini else 8))
 
-    def draw_section(self, p, y0, x0, W):
+    def draw_pill(self, xr, cy, text, color, outline=False):
+        """오른쪽 끝을 xr에 맞춘 알약 모양 배지"""
+        S, cv = self.S, self.canvas
+        f = self.font(7, True)
+        w, h = int(f.measure(text) + 14 * S), int(17 * S)
+        fill = CARD if outline else mix(CARD, color, 0.16)
+        img = self.shape_photo("pill", w, h, fill, CARD, mix(CARD, color, 0.45) if outline else None)
+        cv.create_image(xr, cy, anchor="e", image=img)
+        cv.create_text(xr - w / 2, cy, text=text, fill=color, font=f)
+
+    def draw_section(self, p, y0, x0, xr, y1):
         S, cv = self.S, self.canvas
         d = self.data[p]
-        xr = W - 20 * S
 
-        title = NAMES[p].upper() + (f"  ·  {d['plan'].upper()}" if d["plan"] else "")
-        cv.create_text(x0, y0 + 22 * S, text=title, anchor="w", fill=DIM, font=(self.txt_font, 8, "bold"))
+        hy = y0 + 22 * S
+        dot = int(8 * S)
+        cv.create_image(x0, hy, anchor="w", image=self.shape_photo("dot", dot, dot, BRAND[p], CARD))
+        cv.create_text(x0 + dot + 7 * S, hy, text=NAMES[p], anchor="w", fill=FG, font=self.font(11, True))
+        if d["plan"]:
+            self.draw_pill(xr, hy, d["plan"].upper(), MUTED, outline=True)
 
-        y = y0 + 48 * S
+        y = y0 + 52 * S
+        tx = x0 + 13 * S
         for slot, w in enumerate(d["windows"][:2]):
             pct = self.shown.get((p, w["key"]), 0.0)
-            c2 = palette_for(p, slot, pct)[1]
-            cv.create_oval(x0, y - 4 * S, x0 + 8 * S, y + 4 * S, fill=c2, outline="")
-            cv.create_text(x0 + 15 * S, y, text=w["label"], anchor="w", fill=FG, font=(self.txt_font, 10))
-            cv.create_text(xr, y, text=f"{pct:.0f}%", anchor="e", fill=c2, font=(self.num_font, 15, "bold"))
-            sub = cv.create_text(x0 + 15 * S, y + 19 * S, text=fmt_reset(w["reset"]), anchor="w",
-                                 fill=MUTED, font=(self.txt_font, 8))
+            col = accent(palette_for(p, slot, pct))
+            sd = int(7 * S)
+            cv.create_image(x0 + S, y, anchor="w", image=self.shape_photo("dot", sd, sd, col, CARD))
+            cv.create_text(tx, y, text=w["label"], anchor="w", fill=FG, font=self.font(10))
+            cv.create_text(xr, y, text=f"{pct:.0f}%", anchor="e", fill=col, font=self.font(15, True, True))
+            cv.create_text(tx, y + 20 * S, text=fmt_reset(w["reset"]), anchor="w", fill=MUTED, font=self.font(8))
             pc = pace(w["pct"], time_progress(w))
             if pc:
-                bx = cv.bbox(sub)
-                cv.create_text((bx[2] if bx else x0) + 8 * S, y + 19 * S, text=pc[0], anchor="w",
-                               fill=pc[1], font=(self.txt_font, 8, "bold"))
-            y += 48 * S
+                self.draw_pill(xr, y + 20 * S, pc[0], pc[1])
+            y += 43 * S
 
-        bottom = y0 + (self.SEC_H - 16) * S
         if d["error"]:
-            cv.create_text(x0, bottom + 6 * S, text=d["error"], anchor="sw", width=xr - x0,
-                           fill=MUTED if d["notice"] else BAD, font=(self.txt_font, 8))
+            col = MUTED if d["notice"] else BAD
+            if d["windows"]:  # 이전 값은 그대로 두고 아래에 한 줄로
+                cv.create_text(x0, y1 - 8 * S, text=d["error"], anchor="sw", width=xr - x0, fill=col,
+                               font=self.font(8))
+            else:
+                cv.create_text(x0, y0 + 44 * S, text=d["error"], anchor="nw", width=xr - x0, fill=col,
+                               font=self.font(9))
         elif d["extras"]:
-            cv.create_text(x0, bottom, text="   ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
-                           anchor="w", fill=MUTED, font=(self.txt_font, 8))
+            cv.create_text(x0, y1 - 14 * S, text="  ·  ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
+                           anchor="w", fill=MUTED, font=self.font(8))
 
     # ── 새로고침 버튼
     def draw_button(self):
@@ -811,8 +888,9 @@ class Widget:
         if self.compact and not (self.hover_win or busy):
             return
         cx, cy, r = self.button_pos()
-        cv.create_oval(cx - r, cy - r, cx + r, cy + r, outline="",
-                       fill=BTN_HOVER if self.hover_btn else BTN_BG, tags="btn")
+        dia = int(2 * r)
+        cv.create_image(cx, cy, image=self.shape_photo("dot", dia, dia, BTN_HOVER if self.hover_btn else BTN_BG, BG),
+                        tags="btn")
         ri, lw = r * 0.5, max(1.0, 1.4 * S)
         color = FG if (self.hover_btn or busy) else MUTED
         if busy:
