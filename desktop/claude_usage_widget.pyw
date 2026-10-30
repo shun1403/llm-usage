@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-AI 사용량 위젯 v4 — Claude + ChatGPT 다이얼 게이지 (Windows / macOS)
+AI 사용량 위젯 v5 — Claude + ChatGPT 막대 대시보드 (Windows / macOS)
 
-각 서비스마다 아래가 열린 270° 링 두 개:
-  Claude   바깥 = 현재 세션(5시간), 안쪽 = 주간 한도
-  ChatGPT  바깥 = 짧은 주기 한도(있을 때), 안쪽 = 주간 한도  (Codex 사용량 페이지와 같은 값)
-링 위의 흰 점은 "리셋 주기 중 지금까지 흐른 시간"이에요.
+각 서비스마다 LED처럼 칸이 나뉜 막대 두 개:
+  Claude   위 = 현재 세션(5시간), 아래 = 주간 한도
+  ChatGPT  위 = 짧은 주기 한도(있을 때), 아래 = 주간 한도  (Codex 사용량 페이지와 같은 값)
+막대 위의 흰 세로선은 "리셋 주기 중 지금까지 흐른 시간"이에요.
 
 - 드래그: 창 이동 / 더블클릭: 미니 ↔ 자세히 / ↻ 버튼: 새로고침
 - 우클릭 (Mac은 Control+클릭): 메뉴
@@ -69,7 +69,7 @@ PROVIDERS = ("claude", "gpt")
 NAMES = {"claude": "Claude", "gpt": "ChatGPT"}
 MINI_NAMES = {"claude": "Claude", "gpt": "GPT"}
 BRAND = {"claude": "#D97757", "gpt": "#10A37F"}   # 카드 제목 옆 점
-PALETTES = {                                   # [바깥 링, 안쪽 링] 각각 (시작색, 끝색)
+PALETTES = {                                   # [짧은 주기, 주간] 각각 (시작색, 끝색)
     "claude": [("#DDC4FF", "#8B5CF6"), ("#A9CCFF", "#5B6CF0")],   # 보라, 남색
     "gpt": [("#B4F5D6", "#10B981"), ("#B2F1FA", "#06A6CC")],      # 초록, 청록
 }
@@ -456,95 +456,82 @@ def accent(palette):
     return mix(palette[0], palette[1], 0.55)
 
 
-DIAL_START, DIAL_SWEEP = 135.0, 270.0   # 아래쪽이 열린 270° 다이얼 (7시 반 → 4시 반 방향)
+def number_color(provider, slot, pct):
+    """큰 숫자 색 — 평소엔 흰색, 70% 이상이면 경고색"""
+    return accent(palette_for(provider, slot, pct)) if pct >= 70 else FG
 
 
-def render_dial(size, rings, bg, ss=3):
-    n = size * ss
-    c = n / 2
-    base = Image.new("RGB", (n, n), hex_rgb(bg))
-    draw = ImageDraw.Draw(base)
+_grad_cache = {}
 
-    def box(r, w):
-        ro = r + w / 2
-        return [c - ro, c - ro, c + ro, c + ro]
 
-    def point(r, ang):
-        a = math.radians(ang)
-        return c + r * math.cos(a), c + r * math.sin(a)
+def h_gradient(w, h, c1, c2):
+    """왼쪽 c1 → 오른쪽 c2 가로 그라데이션"""
+    key = (w, h, c1, c2)
+    if key not in _grad_cache:
+        a, b = hex_rgb(c1), hex_rgb(c2)
+        row = Image.new("RGB", (w, 1))
+        row.putdata([lerp(a, b, x / max(1, w - 1)) for x in range(w)])
+        if len(_grad_cache) > 40:
+            _grad_cache.clear()
+        _grad_cache[key] = row.resize((w, h))
+    return _grad_cache[key]
 
-    def caps(d, r, w, angles, fill):
-        for ang in angles:
-            x, y = point(r, ang)
-            d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=fill)
 
-    for rg in rings:
-        r, w = rg["radius"] * ss, rg["width"] * ss
-        draw.arc(box(r, w), DIAL_START, DIAL_START + DIAL_SWEEP, fill=hex_rgb(TRACK), width=int(w))
-        caps(draw, r, w, (DIAL_START, DIAL_START + DIAL_SWEEP), hex_rgb(TRACK))
+def render_bar(w, h, frac, colors, marker, bg, ss=3):
+    """LED처럼 칸이 나뉜 막대.
+    사용률만큼 그라데이션으로 채우고, 흐른 시간 위치에 흰 세로선을 긋는다.
+    결과 이미지 높이는 h + 위아래 여백(세로선·빛 번짐 자리)."""
+    pad = max(2, round(h * 0.5))
+    W, H = w * ss, (h + 2 * pad) * ss
+    y0, y1 = pad * ss, (pad + h) * ss
+    gap = max(1.5, h * 0.26) * ss
+    seg = max(3.0, h * 0.62) * ss
+    count = max(4, int((W + gap) // (seg + gap)))
+    seg = (W - gap * (count - 1)) / count       # 양 끝이 딱 맞도록 칸 폭 보정
+    rad = min(seg, y1 - y0) * 0.32
 
-    fills = []
-    for rg in rings:
-        frac = max(0.0, min(1.0, rg["frac"]))
-        if frac <= 0.002:
-            continue
-        r, w = rg["radius"] * ss, rg["width"] * ss
-        c1, c2 = (hex_rgb(x) for x in rg["colors"])
-        start, span = DIAL_START, DIAL_SWEEP * frac
-        end = start + span
-        mask = Image.new("L", (n, n), 0)
-        md = ImageDraw.Draw(mask)
-        md.arc(box(r, w), start, end, fill=255, width=int(w))
-        for ang in (start, end):
-            x, y = point(r, ang)
-            md.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=255)
-        grad = Image.new("RGB", (n, n), c1)
-        gd = ImageDraw.Draw(grad)
-        steps = max(2, int(span / 3))
-        for i in range(steps):
-            a0 = start + span * i / steps
-            gd.pieslice([0, 0, n, n], a0, a0 + span / steps + 1, fill=lerp(c1, c2, i / (steps - 1)))
-        gd.pieslice([0, 0, n, n], end, end + 30, fill=c2)
-        fills.append((rg, mask, grad))
+    segs = Image.new("L", (W, H), 0)
+    sd = ImageDraw.Draw(segs)
+    for i in range(count):
+        x = i * (seg + gap)
+        sd.rounded_rectangle([x, y0, x + seg - 1, y1 - 1], rad, fill=255)
 
-    for rg, mask, grad in fills:
+    base = Image.new("RGB", (W, H), hex_rgb(bg))
+    base.paste(hex_rgb(TRACK), (0, 0, W, H), segs)
+
+    frac = max(0.0, min(1.0, frac))
+    cut = int(W * frac)
+    if cut > 0:
+        fill = Image.new("L", (W, H), 0)
+        fill.paste(segs.crop((0, 0, cut, H)), (0, 0))
+        grad = h_gradient(W, H, *colors)
         k = 4
-        small = mask.resize((n // k, n // k), Image.BILINEAR)
-        blur = small.filter(ImageFilter.GaussianBlur(rg["width"] * ss * 0.5 / k))
-        glow = blur.resize((n, n), Image.BILINEAR).point(lambda v: int(v * 0.4))
-        base.paste(grad, (0, 0), glow)
+        blur = fill.resize((W // k, H // k), Image.BILINEAR).filter(ImageFilter.GaussianBlur(h * ss * 0.35 / k))
+        base.paste(grad, (0, 0), blur.resize((W, H), Image.BILINEAR).point(lambda v: int(v * 0.2)))
+        base.paste(grad, (0, 0), fill)
 
-    for rg, mask, grad in fills:
-        base.paste(grad, (0, 0), mask)
+    if marker is not None:
+        lw = max(2.0, h * 0.24) * ss
+        x = max(lw, min(W - lw, W * marker))
+        d = ImageDraw.Draw(base)
+        d.rounded_rectangle([x - lw / 2 - ss, ss, x + lw / 2 + ss, H - ss], lw / 2 + ss, fill=hex_rgb(bg))
+        d.rounded_rectangle([x - lw / 2, 2 * ss, x + lw / 2, H - 2 * ss], lw / 2, fill=(244, 246, 250))
 
-    for rg in rings:
-        if rg.get("marker") is None:
-            continue
-        r, w = rg["radius"] * ss, rg["width"] * ss
-        x, y = point(r, DIAL_START + DIAL_SWEEP * rg["marker"])
-        d = w * 0.2
-        draw.ellipse([x - d, y - d, x + d, y + d], fill=(244, 246, 250))
-
-    return base.resize((size, size), Image.LANCZOS)
-
-
-def ring_geometry(tile):
-    w = tile * 0.085
-    margin = w * 0.9
-    r1 = tile / 2 - w / 2 - margin
-    r2 = r1 - w - tile * 0.028
-    return (r1, w), (r2, w)
+    return base.resize((w, h + 2 * pad), Image.LANCZOS)
 
 
 # ─── 위젯 ─────────────────────────────────────────────
 class Widget:
-    WIDTH = 360      # 자세히 보기 폭
+    WIDTH = 340      # 자세히 보기 폭
     PAD = 10         # 창 가장자리 ~ 카드
-    CARD_H = 156     # 서비스 카드 높이
+    CARD_H = 160     # 서비스 카드 높이
     GAP = 8          # 카드 사이 간격
     FOOT_H = 30
-    TILE = 124
-    MINI = 100
+    BAR_H = 10       # 자세히 보기 막대 굵기
+    MINI_H = 54      # 미니 모드(가로 띠) 높이
+    MINI_W = 160     # 미니 모드 서비스 한 칸 폭
+    MINI_PAD = 18    # 미니 모드 왼쪽 여백
+    MINI_BTN = 14    # 미니 모드 오른쪽 새로고침 버튼 자리
 
     def __init__(self):
         from PIL import ImageTk
@@ -594,7 +581,7 @@ class Widget:
         self.spin_job = None
         self._size = None
         self._panel_cache = {}
-        self._ring_cache = {}
+        self._bar_cache = {}
         self._shape_cache = {}
         self._font_cache = {}
 
@@ -683,8 +670,8 @@ class Widget:
             pass
 
     def panel_photo(self, w, h):
-        n = 0 if self.compact else len(self.providers())
-        key = (w, h, self.alpha_mode, n)
+        n = len(self.providers())
+        key = (w, h, self.alpha_mode, self.compact, n)
         if key not in self._panel_cache:
             S, ss = self.S, 3
             img = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0) if self.alpha_mode else hex_rgb(BG) + (255,))
@@ -693,10 +680,16 @@ class Widget:
             if self.alpha_mode:
                 d.rounded_rectangle([0, 0, w * ss - 1, h * ss - 1], radius=int(18 * S * ss),
                                     fill=hex_rgb(BG) + (255,), outline=hex_rgb(BORDER) + (255,), width=line)
-            for i in range(n):  # 서비스 카드
-                x0, y0, x1, y1 = self.card_box(i)
-                d.rounded_rectangle([x0 * ss, y0 * ss, x1 * ss - 1, y1 * ss - 1], radius=int(14 * S * ss),
-                                    fill=hex_rgb(CARD) + (255,), outline=hex_rgb(BORDER) + (255,), width=line)
+            if self.compact:  # 미니 모드: 서비스 사이 세로 구분선
+                for i in range(1, n):
+                    x = self.mini_x(i) - int(10 * S)
+                    d.rounded_rectangle([x * ss, int(14 * S) * ss, x * ss + line, h * ss - int(14 * S) * ss],
+                                        line / 2, fill=hex_rgb(BORDER) + (255,))
+            else:
+                for i in range(n):  # 서비스 카드
+                    x0, y0, x1, y1 = self.card_box(i)
+                    d.rounded_rectangle([x0 * ss, y0 * ss, x1 * ss - 1, y1 * ss - 1], radius=int(14 * S * ss),
+                                        fill=hex_rgb(CARD) + (255,), outline=hex_rgb(BORDER) + (255,), width=line)
             img = img.resize((w, h), Image.LANCZOS)
             self._panel_cache[key] = self.ImageTk.PhotoImage(img if self.alpha_mode else img.convert("RGB"))
         return self._panel_cache[key]
@@ -729,7 +722,7 @@ class Widget:
     def dims(self):
         S, n = self.S, len(self.providers())
         if self.compact:
-            return int(self.MINI * S * n), int(self.MINI * S)
+            return int((self.MINI_PAD + n * self.MINI_W + self.MINI_BTN) * S), int(self.MINI_H * S)
         return int(self.WIDTH * S), int((self.PAD + n * self.CARD_H + (n - 1) * self.GAP + self.FOOT_H) * S)
 
     def card_box(self, i):
@@ -737,42 +730,32 @@ class Widget:
         y0 = int((self.PAD + i * (self.CARD_H + self.GAP)) * S)
         return int(self.PAD * S), y0, int((self.WIDTH - self.PAD) * S), y0 + int(self.CARD_H * S)
 
+    def mini_x(self, i):
+        return int((self.MINI_PAD + i * self.MINI_W) * self.S)
+
     def button_pos(self):
         S = self.S
         W, H = self.dims()
         if self.compact:
-            return W - 13 * S, H - 13 * S, 8 * S
+            return W - 18 * S, H / 2, 8 * S
         return W - (self.PAD + 12) * S, H - self.FOOT_H * S / 2, 10 * S
 
-    # ── 다이얼 이미지
-    def ring_photo(self, p, tile, bg):
-        geo = ring_geometry(tile)
-        wins = self.data[p]["windows"][:2]
-        specs = []
-        for slot, (radius, width) in enumerate(geo):
-            if slot < len(wins):
-                w = wins[slot]
-                pct = self.shown.get((p, w["key"]), 0.0)
-                tp = time_progress(w)
-                specs.append({"radius": radius, "width": width, "frac": pct / 100,
-                              "colors": palette_for(p, slot, pct), "marker": tp})
-            elif not wins or slot == 0:
-                specs.append({"radius": radius, "width": width, "frac": 0,
-                              "colors": PALETTES[p][slot], "marker": None})
-        key = (p, tile, bg, self.alpha_mode, tuple(
-            (round(s["frac"], 3), s["colors"], None if s["marker"] is None else round(s["marker"], 3))
-            for s in specs))
-        if key not in self._ring_cache:
-            if len(self._ring_cache) > 60:
-                self._ring_cache.clear()
-            img = render_dial(tile, specs, bg)
-            if self.alpha_mode:
-                circle = Image.new("L", img.size, 0)
-                ImageDraw.Draw(circle).ellipse([1, 1, tile - 2, tile - 2], fill=255)
-                img = img.convert("RGBA")
-                img.putalpha(circle)
-            self._ring_cache[key] = self.ImageTk.PhotoImage(img)
-        return self._ring_cache[key]
+    # ── 막대 이미지
+    def bar_photo(self, w, h, frac, colors, marker, bg):
+        key = (w, h, round(frac, 3), colors, None if marker is None else round(marker, 3), bg)
+        if key not in self._bar_cache:
+            if len(self._bar_cache) > 80:
+                self._bar_cache.clear()
+            self._bar_cache[key] = self.ImageTk.PhotoImage(render_bar(w, h, frac, colors, marker, bg))
+        return self._bar_cache[key]
+
+    def window_bar(self, p, slot, w, h, bg):
+        wins = self.data[p]["windows"]
+        if slot < len(wins):
+            win = wins[slot]
+            pct = self.shown.get((p, win["key"]), 0.0)
+            return self.bar_photo(w, h, pct / 100, palette_for(p, slot, pct), time_progress(win), bg)
+        return self.bar_photo(w, h, 0, PALETTES[p][slot], None, bg)
 
     # ── 화면 그리기
     def redraw(self):
@@ -787,17 +770,9 @@ class Widget:
 
         for i, p in enumerate(self.providers()):
             if self.compact:
-                tile = int(self.MINI * S)
-                tx, ty = i * tile, 0
-                cv.create_image(tx, ty, anchor="nw", image=self.ring_photo(p, tile, BG))
-                self.draw_center(p, tx + tile / 2, ty + tile / 2, tile)
-                continue
-            x0, y0, x1, y1 = self.card_box(i)
-            tile = int(self.TILE * S)
-            tx, ty = x0 + int(6 * S), y0 + (y1 - y0 - tile) // 2
-            cv.create_image(tx, ty, anchor="nw", image=self.ring_photo(p, tile, CARD))
-            self.draw_center(p, tx + tile / 2, ty + tile / 2, tile)
-            self.draw_section(p, y0, tx + tile + int(8 * S), x1 - int(14 * S), y1)
+                self.draw_mini(p, self.mini_x(i))
+            else:
+                self.draw_card(p, *self.card_box(i))
 
         if not self.compact and self.last_ok:
             bx, by, br = self.button_pos()
@@ -805,80 +780,91 @@ class Widget:
                            anchor="e", fill=DIM, font=self.font(8))
         self.draw_button()
 
-    def draw_number(self, cx, cy, pct, big, small, color=FG):
-        """'34%' — 숫자는 크게, %는 작게, 밑줄(기준선)을 맞춰서 가운데에"""
+    def draw_number(self, x, cy, pct, big, small, color=FG):
+        """'34%' — 숫자는 크게, %는 작게, 기준선을 맞춰 왼쪽 정렬"""
         cv = self.canvas
         fb, fs = self.font(big, True, True), self.font(small, True, True)
         num = f"{pct:.0f}"
-        nw, pw = fb.measure(num), fs.measure("%")
-        left = cx - (nw + pw) / 2
+        nw = fb.measure(num)
         base = cy + fb.metrics("ascent") * 0.36
-        cv.create_text(left, base + fb.metrics("descent"), text=num, anchor="sw", fill=color, font=fb)
-        cv.create_text(left + nw, base + fs.metrics("descent"), text="%", anchor="sw", fill=MUTED, font=fs)
+        cv.create_text(x, base + fb.metrics("descent"), text=num, anchor="sw", fill=color, font=fb)
+        cv.create_text(x + nw + 1, base + fs.metrics("descent"), text="%", anchor="sw", fill=MUTED, font=fs)
 
-    def draw_center(self, p, cx, cy, tile):
-        cv, S = self.canvas, self.S
+    def draw_status(self, p, x, cy, size):
+        """값이 없을 때 숫자 자리에 오류(!) / 불러오는 중(···) / 없음(–)"""
         d = self.data[p]
-        first = d["windows"][0] if d["windows"] else None
-        mini = self.compact
-        label_y = cy + tile * (0.33 if mini else 0.31)
-        if first:
-            pct = self.shown.get((p, first["key"]), 0.0)
-            self.draw_number(cx, cy - (1 if mini else 2) * S, pct, 14 if mini else 20, 7 if mini else 10)
-        else:
-            mark, col = ("!", BAD) if d["error"] and not d["notice"] else ("···" if p in self.fetching else "–", MUTED)
-            cv.create_text(cx, cy - 1 * S, text=mark, fill=col, font=self.font(14 if mini else 18, True, True))
-        label = MINI_NAMES[p] if mini else (first["short"] if first else "")
-        if label:
-            cv.create_text(cx, label_y, text=label, fill=MUTED, font=self.font(7 if mini else 8))
+        mark, col = ("!", BAD) if d["error"] and not d["notice"] else ("···" if p in self.fetching else "–", MUTED)
+        self.canvas.create_text(x, cy, text=mark, anchor="w", fill=col, font=self.font(size, True, True))
 
-    def draw_pill(self, xr, cy, text, color, outline=False):
-        """오른쪽 끝을 xr에 맞춘 알약 모양 배지"""
+    def draw_pill(self, x, cy, text, color, outline=False, anchor="e"):
+        """알약 모양 배지 — anchor="e"면 오른쪽 끝, "w"면 왼쪽 끝을 x에 맞춤"""
         S, cv = self.S, self.canvas
         f = self.font(7, True)
         w, h = int(f.measure(text) + 14 * S), int(17 * S)
         fill = CARD if outline else mix(CARD, color, 0.16)
         img = self.shape_photo("pill", w, h, fill, CARD, mix(CARD, color, 0.45) if outline else None)
-        cv.create_image(xr, cy, anchor="e", image=img)
-        cv.create_text(xr - w / 2, cy, text=text, fill=color, font=f)
+        cv.create_image(x, cy, anchor=anchor, image=img)
+        cv.create_text(x - w / 2 if anchor == "e" else x + w / 2, cy, text=text, fill=color, font=f)
 
-    def draw_section(self, p, y0, x0, xr, y1):
+    def draw_card(self, p, x0, y0, x1, y1):
         S, cv = self.S, self.canvas
         d = self.data[p]
+        cx0, cx1 = x0 + 16 * S, x1 - 16 * S
 
         hy = y0 + 22 * S
         dot = int(8 * S)
-        cv.create_image(x0, hy, anchor="w", image=self.shape_photo("dot", dot, dot, BRAND[p], CARD))
-        cv.create_text(x0 + dot + 7 * S, hy, text=NAMES[p], anchor="w", fill=FG, font=self.font(11, True))
+        cv.create_image(cx0, hy, anchor="w", image=self.shape_photo("dot", dot, dot, BRAND[p], CARD))
+        cv.create_text(cx0 + dot + 7 * S, hy, text=NAMES[p], anchor="w", fill=FG, font=self.font(11, True))
         if d["plan"]:
-            self.draw_pill(xr, hy, d["plan"].upper(), MUTED, outline=True)
+            self.draw_pill(cx1, hy, d["plan"].upper(), MUTED, outline=True)
 
-        y = y0 + 52 * S
-        tx = x0 + 13 * S
+        if not d["windows"]:
+            if p in self.fetching and not d["error"]:
+                msg, col = "불러오는 중…", MUTED
+            else:
+                msg, col = d["error"] or "", MUTED if d["notice"] else BAD
+            cv.create_text(cx0, y0 + 46 * S, text=msg, anchor="nw", width=cx1 - cx0, fill=col, font=self.font(9))
+            return
+
+        # 한 줄 구성:  [큰 숫자] [막대 ──────────── ]
+        #                       [이름 · 속도 배지   초기화 시각]
+        y = y0 + 54 * S
+        bx = cx0 + 66 * S
         for slot, w in enumerate(d["windows"][:2]):
             pct = self.shown.get((p, w["key"]), 0.0)
-            col = accent(palette_for(p, slot, pct))
-            sd = int(7 * S)
-            cv.create_image(x0 + S, y, anchor="w", image=self.shape_photo("dot", sd, sd, col, CARD))
-            cv.create_text(tx, y, text=w["label"], anchor="w", fill=FG, font=self.font(10))
-            cv.create_text(xr, y, text=f"{pct:.0f}%", anchor="e", fill=col, font=self.font(15, True, True))
-            cv.create_text(tx, y + 20 * S, text=fmt_reset(w["reset"]), anchor="w", fill=MUTED, font=self.font(8))
+            self.draw_number(cx0, y + 10 * S, pct, 20, 9, number_color(p, slot, pct))
+            cv.create_image(bx, y, anchor="w", image=self.window_bar(p, slot, int(cx1 - bx), int(self.BAR_H * S), CARD))
+            sy = y + 21 * S
+            lab = cv.create_text(bx, sy, text=w["label"], anchor="w", fill=FG, font=self.font(9, True))
             pc = pace(w["pct"], time_progress(w))
             if pc:
-                self.draw_pill(xr, y + 20 * S, pc[0], pc[1])
-            y += 43 * S
+                bb = cv.bbox(lab)
+                self.draw_pill((bb[2] if bb else bx) + 6 * S, sy, pc[0], pc[1], anchor="w")
+            cv.create_text(cx1, sy, text=fmt_reset(w["reset"]), anchor="e", fill=MUTED, font=self.font(8))
+            y += 50 * S
 
-        if d["error"]:
-            col = MUTED if d["notice"] else BAD
-            if d["windows"]:  # 이전 값은 그대로 두고 아래에 한 줄로
-                cv.create_text(x0, y1 - 8 * S, text=d["error"], anchor="sw", width=xr - x0, fill=col,
-                               font=self.font(8))
-            else:
-                cv.create_text(x0, y0 + 44 * S, text=d["error"], anchor="nw", width=xr - x0, fill=col,
-                               font=self.font(9))
+        if d["error"]:  # 이전 값은 그대로 두고 아래에 한 줄로
+            cv.create_text(cx0, y1 - 8 * S, text=d["error"], anchor="sw", width=cx1 - cx0,
+                           fill=MUTED if d["notice"] else BAD, font=self.font(8))
         elif d["extras"]:
-            cv.create_text(x0, y1 - 14 * S, text="  ·  ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
+            cv.create_text(cx0, y1 - 14 * S, text="  ·  ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
                            anchor="w", fill=MUTED, font=self.font(8))
+
+    def draw_mini(self, p, x):
+        S, cv = self.S, self.canvas
+        d = self.data[p]
+        first = d["windows"][0] if d["windows"] else None
+        cv.create_text(x, 17 * S, text=MINI_NAMES[p], anchor="w", fill=MUTED, font=self.font(7, True))
+        if first:
+            pct = self.shown.get((p, first["key"]), 0.0)
+            self.draw_number(x, 36 * S, pct, 14, 7, number_color(p, 0, pct))
+        else:
+            self.draw_status(p, x, 36 * S, 13)
+        bx = x + 56 * S
+        bw = int((self.MINI_W - 56 - 18) * S)
+        for slot, (h, cy) in enumerate(((7, 21), (5, 36))):
+            if slot < len(d["windows"]) or not d["windows"]:
+                cv.create_image(bx, cy * S, anchor="w", image=self.window_bar(p, slot, bw, int(h * S), BG))
 
     # ── 새로고침 버튼
     def draw_button(self):
