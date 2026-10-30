@@ -10,6 +10,7 @@ AI 사용량 위젯 v7 — Claude + ChatGPT 스플릿 플랩 (Windows / macOS)
 - 드래그: 창 이동 / 클릭: 숫자 섞기 / 더블클릭: 미니 ↔ 자세히 / ↻ 버튼: 새로고침
 - 마우스 휠: 투명도 조절
 - 우클릭 (Mac은 Control+클릭): 메뉴
+- 처음 실행하면 컴퓨터를 켤 때 자동으로 실행되도록 등록해요 (메뉴에서 끌 수 있어요)
 
 필요: pip install pillow curl_cffi
 
@@ -26,6 +27,7 @@ import queue
 import random
 import re
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -83,6 +85,10 @@ class FetchError(Exception):
     pass
 
 
+class NetworkError(FetchError):
+    pass
+
+
 class AuthError(FetchError):
     pass
 
@@ -113,6 +119,88 @@ def save_config(cfg):
         os.chmod(CONFIG_PATH, 0o600)
 
 
+# ─── 컴퓨터를 켤 때 자동 실행 ──────────────────────────
+AUTOSTART_NAME = "LLM Usage Widget"                # Windows 시작 프로그램(레지스트리 Run) 이름
+AUTOSTART_LABEL = "io.github.shun1403.llm-usage"   # Mac LaunchAgent 이름
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def autostart_supported():
+    return (IS_WIN or IS_MAC) and bool(sys.executable)
+
+
+def launch_command():
+    """지금 실행 중인 파이썬 + 이 파일. Windows는 cmd 창이 뜨지 않게 pythonw로"""
+    exe = Path(sys.executable)
+    if IS_WIN and exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").exists():
+        exe = exe.with_name("pythonw.exe")
+    return [str(exe), str(Path(__file__).resolve())]
+
+
+def mac_agent_path():
+    return Path.home() / "Library" / "LaunchAgents" / f"{AUTOSTART_LABEL}.plist"
+
+
+def in_temp_dir():
+    """압축 파일 안에서 바로 연 경우처럼 임시 폴더에서 실행 중인지"""
+    try:
+        Path(__file__).resolve().relative_to(Path(tempfile.gettempdir()).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def set_autostart(on):
+    """켜기: 지금 위치의 파일로 (다시) 등록 / 끄기: 등록 지우기. 실패하면 OSError"""
+    if IS_WIN:
+        import winreg
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            if on:
+                cmd = " ".join(f'"{a}"' for a in launch_command())
+                winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, cmd)
+            else:
+                try:
+                    winreg.DeleteValue(key, AUTOSTART_NAME)
+                except FileNotFoundError:
+                    pass
+    elif IS_MAC:
+        import plistlib
+        path = mac_agent_path()
+        if not on:
+            path.unlink(missing_ok=True)
+            return
+        data = plistlib.dumps({"Label": AUTOSTART_LABEL, "ProgramArguments": launch_command(),
+                               "RunAtLoad": True, "ProcessType": "Interactive"})
+        if path.exists() and path.read_bytes() == data:
+            return   # 같은 내용을 다시 쓰면 '백그라운드 항목 추가' 알림이 또 뜰 수 있어서
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+# ─── 중복 실행 방지 ────────────────────────────────────
+_instance_lock = None
+
+
+def already_running():
+    """위젯이 이미 떠 있으면 True. 자동 실행과 직접 실행이 겹쳐도 창은 하나만"""
+    global _instance_lock
+    try:
+        if IS_WIN:
+            import ctypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CreateMutexW.restype = ctypes.c_void_p
+            _instance_lock = k32.CreateMutexW(None, False, "Local\\LLMUsageWidget")
+            return ctypes.get_last_error() == 183   # ERROR_ALREADY_EXISTS
+        import fcntl
+        _instance_lock = open(Path.home() / ".llm_usage_widget.lock", "w")
+        fcntl.flock(_instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return False
+    except BlockingIOError:
+        return True
+    except Exception:
+        return False
+
+
 # ─── 네트워크 공통 ─────────────────────────────────────
 def http_get_json(url, headers=None, cookies=None):
     hdrs = {"Accept": "application/json", "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"}
@@ -122,7 +210,7 @@ def http_get_json(url, headers=None, cookies=None):
         try:
             r = cffi_requests.get(url, headers=hdrs, cookies=cookies, impersonate="chrome", timeout=20)
         except Exception as e:
-            raise FetchError(f"네트워크 오류: {e}")
+            raise NetworkError(f"네트워크 오류: {e}")
         status, text = r.status_code, r.text
     else:
         import urllib.error
@@ -138,7 +226,7 @@ def http_get_json(url, headers=None, cookies=None):
         except urllib.error.HTTPError as e:
             status, text = e.code, e.read().decode("utf-8", "replace")
         except urllib.error.URLError as e:
-            raise FetchError(f"네트워크 연결을 확인하세요 ({e.reason})")
+            raise NetworkError(f"네트워크 연결을 확인하세요 ({e.reason})")
 
     if status == 200:
         try:
@@ -616,6 +704,7 @@ class Widget:
                 sys.exit(0)
             self.cfg["show_claude"], self.cfg["show_gpt"] = claude_ok, gpt_ok
             save_config(self.cfg)
+        self.sync_autostart()
 
         self.S = self.root.winfo_fpixels("1i") / 96 if IS_WIN else 1.0
         fams = set(tkfont.families(self.root))
@@ -636,6 +725,7 @@ class Widget:
         self.compact = self.cfg.get("compact", False)
         self.flaps = {}              # (서비스, 칸, 종류) → 카드 목록 [{"cur", "queue", "t0", "color"}]
         self.anim_job = None
+        self.retry_job = None
         self.last_hover = 0.0
         self._drag = None
         self._press = None
@@ -727,10 +817,14 @@ class Widget:
         self.show_vars = {p: tk.BooleanVar(value=self.cfg.get(f"show_{p}", True)) for p in PROVIDERS}
         self.opacity_var = tk.DoubleVar(value=self.opacity())
         self.reveal_var = tk.BooleanVar(value=self.cfg.get("hover_reveal", True))
+        self.autostart_var = tk.BooleanVar(value=self.cfg.get("autostart", True))
         self.menu.add_command(label="지금 새로고침", command=self.fetch_async)
         self.menu.add_command(label="미니 / 자세히 보기", command=self.toggle_compact)
         self.menu.add_checkbutton(label="항상 위에 표시", variable=self.topmost_var,
                                   command=self.toggle_topmost)
+        if autostart_supported():
+            self.menu.add_checkbutton(label="컴퓨터 켤 때 자동 실행", variable=self.autostart_var,
+                                      command=self.toggle_autostart)
         op = tk.Menu(self.menu, tearoff=0)
         for v in self.OPACITY_STEPS:
             op.add_radiobutton(label=f"{v:.0%}", variable=self.opacity_var, value=v,
@@ -1239,6 +1333,8 @@ class Widget:
                     self.q.put(("ok", p, FETCHERS[p](cfg)))
                 except NotConfigured as e:
                     self.q.put(("notice", p, str(e)))
+                except NetworkError as e:
+                    self.q.put(("neterr", p, str(e)))
                 except FetchError as e:
                     self.q.put(("err", p, str(e)))
                 except Exception as e:
@@ -1270,6 +1366,9 @@ class Widget:
                     d.update(error=payload, notice=(kind == "notice"))
                     if kind == "notice":
                         d.update(windows=[], extras=[], plan=None)
+                    if kind == "neterr" and not self.retry_job:
+                        # 컴퓨터를 막 켜서 인터넷이 아직 안 붙은 경우 등 → 2분 기다리지 않고 곧 다시
+                        self.retry_job = self.root.after(15_000, self.retry_fetch)
                 changed.append(p)
         except queue.Empty:
             pass
@@ -1278,6 +1377,10 @@ class Widget:
         if changed:
             self.redraw()
         self.root.after(300, self.poll_queue)
+
+    def retry_fetch(self):
+        self.retry_job = None
+        self.fetch_async()
 
     def auto_refresh(self):
         self.fetch_async()
@@ -1333,6 +1436,26 @@ class Widget:
         self.root.attributes("-topmost", self.cfg["topmost"])
         save_config(self.cfg)
         self.raise_top()
+
+    def sync_autostart(self):
+        """자동 실행이 켜져 있으면(처음엔 켜짐) 지금 파일 위치로 다시 등록 — 파일을 옮겨도 따라가요"""
+        if autostart_supported() and self.cfg.get("autostart", True) and not in_temp_dir():
+            try:
+                set_autostart(True)
+            except OSError:
+                pass
+
+    def toggle_autostart(self):
+        on = self.autostart_var.get()
+        try:
+            set_autostart(on)
+        except OSError as e:
+            self.autostart_var.set(not on)
+            msg = f"자동 실행 설정을 바꾸지 못했어요.\n{e}"
+            self._dialog(lambda: messagebox.showerror("AI 사용량", msg, parent=self.root))
+            return
+        self.cfg["autostart"] = on
+        save_config(self.cfg)
 
     def toggle_provider(self, p):
         self.cfg[f"show_{p}"] = self.show_vars[p].get()
@@ -1423,4 +1546,6 @@ if __name__ == "__main__":
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
+    if already_running():
+        sys.exit(0)
     Widget().run()
