@@ -11,7 +11,7 @@
 
 <img src="docs/images/banner.png" width="100%" alt="스플릿 플랩 위젯의 미니 모드와 자세히 보기 모드">
 
-[빠른 시작](#빠른-시작) · [설치](#데스크톱-위젯-설치) · [아이폰 위젯](#아이폰-위젯) · [화면 읽는 법](#화면-읽는-법) · [문제 해결](#문제-해결)
+[빠른 시작](#빠른-시작) · [설치](#데스크톱-위젯-설치) · [등록하기](#등록하기) · [아이폰 위젯](#아이폰-위젯) · [화면 읽는 법](#화면-읽는-법) · [문제 해결](#문제-해결)
 
 </div>
 
@@ -83,9 +83,9 @@ pip install pillow curl_cffi
 ```
 
 1. [`desktop/claude_usage_widget.pyw`](desktop/claude_usage_widget.pyw)를 내려받아 더블클릭합니다.
-2. Claude 세션 키를 붙여넣습니다. → [세션 키 복사하는 법](#2-claude-세션-키-복사)
-3. ChatGPT는 Codex에 로그인되어 있으면 자동으로 연결됩니다. 아니면 [쿠키 값](#3-chatgpt-연결-선택)을 붙여넣고, 쓰지 않으면 취소합니다. ([하나만 쓰는 경우](#하나만-쓰는-경우))
-4. 컴퓨터를 켤 때마다 자동으로 띄우려면 [자동 실행](#5-컴퓨터를-켤-때-자동-실행)을 설정합니다.
+2. Claude 세션 키를 붙여넣습니다. → [Claude 등록하기](#claude-등록하기)
+3. ChatGPT는 Codex에 로그인되어 있으면 자동으로 연결됩니다. 아니면 쿠키 값을 붙여넣고, 쓰지 않으면 Cancel을 누릅니다. → [ChatGPT 등록하기](#chatgpt-등록하기)
+4. 컴퓨터를 켤 때마다 자동으로 띄우려면 [자동 실행](#3-컴퓨터를-켤-때-자동-실행)을 설정합니다.
 
 ---
 
@@ -114,35 +114,7 @@ pip install pillow curl_cffi
 | `pillow` | 숫자 카드 그리기 — **필수** |
 | `curl_cffi` | 사이트의 자동 요청 차단 피하기 — ChatGPT는 사실상 필수 |
 
-### 2. Claude 세션 키 복사
-
-1. PC 브라우저에서 [claude.ai](https://claude.ai)에 로그인합니다.
-2. 개발자 도구를 엽니다. — `F12` (Mac: `Cmd + Option + I`)
-3. 쿠키 목록을 찾습니다.
-   - **크롬·엣지**: Application 탭 → Cookies → `https://claude.ai`
-   - **사파리**: 저장 공간 탭 → 쿠키 → `claude.ai`
-     <sub>(개발자 도구가 열리지 않으면 사파리 설정 → 고급 → "웹 개발자용 기능 보기"를 켭니다.)</sub>
-4. 이름이 **`sessionKey`** 인 항목의 값을 복사합니다. (`sk-ant-sid01-` 로 시작합니다.)
-
-### 3. ChatGPT 연결 (선택)
-
-> [!NOTE]
-> ChatGPT 쪽 수치는 [chatgpt.com/codex/settings/usage](https://chatgpt.com/codex/settings/usage)에 나오는 **Codex 사용 한도**입니다.
-> 일반 ChatGPT 채팅의 메시지 한도는 OpenAI가 퍼센트로 공개하지 않아 가져올 수 없습니다.
-
-아래 두 방법 중 하나만 하면 됩니다.
-
-**방법 A — Codex를 쓰고 있는 경우 (가장 간편)**<br>
-이 컴퓨터에서 Codex(CLI·VS Code 확장·앱)에 ChatGPT 계정으로 로그인해 두었다면 **자동으로 연결**됩니다. 따로 할 일은 없습니다.
-위젯은 `~/.codex/auth.json`을 읽기만 하며 절대 수정하지 않습니다.
-
-**방법 B — 브라우저 쿠키 복사**
-1. PC 브라우저에서 [chatgpt.com](https://chatgpt.com)에 로그인합니다.
-2. `F12` → Application 탭 → Cookies → `https://chatgpt.com`을 엽니다.
-3. 이름이 **`__Secure-next-auth.session-token`** 인 항목의 값을 복사합니다.
-   - 이름 끝에 `.0` / `.1` 이 붙어 두 개로 나뉘어 있다면, `.0` 값 바로 뒤에 `.1` 값을 이어 붙여 주십시오.
-
-### 4. 실행
+### 2. 실행
 
 **Windows** — `claude_usage_widget.pyw`를 더블클릭하면 cmd 창 없이 위젯만 나타납니다.
 
@@ -159,12 +131,12 @@ nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
 
 이후 터미널을 닫아도 위젯은 계속 떠 있습니다.
 
-처음 실행하면 Claude 세션 키와 ChatGPT 토큰을 차례로 묻습니다. **사용하지 않는 서비스는 취소**하면 됩니다. 취소한 서비스는 미니 모드에 나타나지 않고, 자세히 보기에는 '등록 대기' 한 줄로만 표시됩니다.
+처음 실행하면 Claude 세션 키와 ChatGPT 토큰을 차례로 묻습니다. 값을 구하는 방법은 바로 아래 [등록하기](#등록하기)에 자세히 있습니다. **사용하지 않는 서비스는 Cancel**을 누르면 됩니다. 취소한 서비스는 미니 모드에 나타나지 않고, 자세히 보기에는 '등록 대기' 한 줄로만 표시됩니다.
 
 > [!TIP]
 > **업데이트**할 때는 새 `.pyw` 파일로 덮어쓰기만 하면 됩니다. 창 위치·세션 키 같은 설정은 홈 폴더의 설정 파일에 따로 저장되므로 그대로 유지됩니다.
 
-### 5. 컴퓨터를 켤 때 자동 실행
+### 3. 컴퓨터를 켤 때 자동 실행
 
 <details>
 <summary><b>Windows</b></summary>
@@ -190,6 +162,166 @@ nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
 
 ---
 
+## 등록하기
+
+위젯이 사용량을 가져오려면 각 서비스에 **로그인된 정보**가 필요합니다. 둘 중 하나만 등록해도 됩니다. ([하나만 쓰는 경우](#하나만-쓰는-경우))
+
+| 서비스 | 필요한 것 | 구하는 곳 | 유효 기간 |
+|---|---|---|---|
+| **Claude** | 세션 키 (`sessionKey` 쿠키 값) | 브라우저 개발자 도구 | 몇 주 · claude.ai에서 로그아웃하면 바로 만료 |
+| **ChatGPT** | Codex 로그인 **또는** 세션 토큰 (`__Secure-next-auth.session-token` 쿠키 값) | Codex 또는 브라우저 개발자 도구 | Codex 로그인은 Codex를 쓰면 자동 갱신 · 쿠키는 몇 주 |
+
+> [!CAUTION]
+> 세션 키·토큰은 **비밀번호와 같습니다.** 이 값만 있으면 누구나 내 계정에 로그인할 수 있습니다.
+> - 메신저·이메일로 보내거나 스크린샷을 찍어 공유하지 마십시오. 화면 공유 중에는 개발자 도구를 열지 마십시오.
+> - 위젯은 이 값을 **내 컴퓨터의 설정 파일에만** 저장하고, 사용량을 물어볼 때 claude.ai · chatgpt.com 에만 보냅니다.
+
+---
+
+### Claude 등록하기
+
+<p align="center">
+  <img src="docs/images/guide_claude.png" width="100%" alt="크롬 개발자 도구에서 Claude 세션 키를 찾는 위치: 1 개발자 도구, 2 Application 탭, 3 Cookies의 https://claude.ai, 4 sessionKey의 Value">
+</p>
+
+#### 1단계. 세션 키 복사하기
+
+PC 브라우저에서 [claude.ai](https://claude.ai)에 로그인한 뒤(이미 로그인되어 있으면 그대로), **claude.ai 탭에서** 아래 순서대로 합니다.
+
+<details open>
+<summary><b>크롬 · 엣지 · 웨일</b></summary>
+
+1. `F12` 를 누릅니다. (또는 `Ctrl + Shift + I`, Mac은 `Cmd + Option + I`) 화면 옆이나 아래에 개발자 도구가 열립니다.
+2. 개발자 도구 위쪽 탭에서 **Application** 을 누릅니다. (한국어 화면이면 **애플리케이션**)
+   - 탭이 안 보이면 탭 줄 오른쪽의 **»** 를 눌러 목록에서 고릅니다.
+3. 왼쪽 목록에서 **Cookies**(쿠키) 왼쪽의 ▸ 를 눌러 펼친 뒤 **`https://claude.ai`** 를 누릅니다.
+4. 오른쪽 표 위의 **Filter**(필터) 칸에 `sessionKey` 를 입력하면 한 줄만 남습니다.
+5. **Name** 이 `sessionKey` 인 줄의 **Value** 칸을 더블클릭한 뒤 `Ctrl + A` → `Ctrl + C` 로 복사합니다. (Mac은 `Cmd`)
+   - 줄을 한 번 클릭하면 아래쪽 **Cookie Value** 칸에도 전체 값이 보이니, 거기서 복사해도 됩니다.
+
+</details>
+
+<details>
+<summary><b>파이어폭스</b></summary>
+
+1. `F12` 를 누릅니다.
+2. 위쪽 탭에서 **Storage**(저장소) 를 누릅니다.
+3. 왼쪽 **Cookies**(쿠키) → **`https://claude.ai`** 를 누릅니다.
+4. 이름이 `sessionKey` 인 줄의 **Value**(값) 칸을 더블클릭한 뒤 `Ctrl + A` → `Ctrl + C` 로 복사합니다.
+
+</details>
+
+<details>
+<summary><b>사파리 (Mac)</b></summary>
+
+1. 처음 한 번만: **Safari → 설정 → 고급** 에서 **웹 개발자용 기능 보기**를 켭니다. (버전에 따라 "메뉴 막대에서 개발자용 메뉴 보기")
+2. claude.ai 탭에서 `Cmd + Option + I` 를 누릅니다.
+3. 위쪽 탭에서 **저장 공간**(Storage) → **쿠키** → **claude.ai** 를 누릅니다.
+4. 이름이 `sessionKey` 인 줄의 값을 더블클릭한 뒤 `Cmd + A` → `Cmd + C` 로 복사합니다.
+
+</details>
+
+> [!TIP]
+> 제대로 복사했다면 `sk-ant-sid01-` 로 시작하는 **긴 문자열**입니다. 앞뒤에 공백이 붙어도 괜찮습니다.
+
+#### 2단계. 위젯에 붙여넣기
+
+- **처음 실행할 때**: "Claude 세션 키" 창이 뜨면 `Ctrl + V` 로 붙여넣고 **OK** 를 누릅니다. 입력한 값은 `•••` 로 가려져 보입니다.
+- **이미 실행 중일 때**: 위젯을 우클릭 → **Claude 세션 키 변경** → 붙여넣기 → **OK**.
+
+#### 3단계. 됐는지 확인하기
+
+- 몇 초 안에 숫자 카드가 넘어가며 사용률이 보이면 성공입니다.
+- **"Claude 세션 키가 만료됐어요"** 가 보이면 값이 잘못 복사됐거나 만료된 것입니다. 1단계부터 다시 합니다.
+- **"요청이 차단됐어요"** 가 보이면 `pip install curl_cffi` 를 실행한 뒤 위젯을 다시 켭니다.
+
+#### 알아 두기
+
+- **claude.ai에서 로그아웃하면 세션 키가 바로 만료됩니다.** 키를 복사한 브라우저에서는 로그아웃하지 말고 탭만 닫으십시오.
+- 로그아웃하지 않아도 몇 주가 지나면 만료됩니다. 그때는 같은 방법으로 새 값을 넣으면 됩니다.
+- 개인 계정과 회사(Team · Enterprise) 계정처럼 조직이 여러 개면, 채팅을 쓸 수 있는 첫 번째 조직의 사용량이 표시됩니다.
+- [아이폰 위젯](#아이폰-위젯)에도 같은 세션 키를 넣으면 됩니다.
+
+---
+
+### ChatGPT 등록하기
+
+> [!NOTE]
+> ChatGPT 쪽 수치는 [chatgpt.com/codex/settings/usage](https://chatgpt.com/codex/settings/usage)에 나오는 **Codex 사용 한도**입니다.
+> 일반 ChatGPT 채팅의 메시지 한도는 OpenAI가 퍼센트로 공개하지 않아 가져올 수 없습니다. Codex 한도가 없는 요금제라면 "ChatGPT 사용량 항목이 없어요"라고 표시됩니다.
+
+두 방법 중 하나만 하면 됩니다.
+
+| | 방법 A. Codex 로그인 (추천) | 방법 B. 브라우저 쿠키 복사 |
+|---|---|---|
+| **이런 분께** | Codex(CLI · VS Code 확장 · 앱)를 쓰는 분 | Codex를 쓰지 않는 분 |
+| **할 일** | Codex에 ChatGPT 계정으로 한 번 로그인 | 개발자 도구에서 값을 복사해 붙여넣기 |
+| **만료되면** | Codex를 한 번 실행하면 자동 갱신 | 같은 방법으로 다시 복사 |
+
+<sub>둘 다 해 두면 Codex 로그인을 먼저 쓰고, 안 되면 쿠키를 씁니다.</sub>
+
+#### 방법 A. Codex 로그인 (추천)
+
+1. **Codex 설치** — 이미 쓰고 있다면 건너뜁니다.
+   - 터미널용(CLI): [Node.js](https://nodejs.org)를 설치한 뒤 cmd · 터미널에서 실행합니다.
+
+     ```bash
+     npm install -g @openai/codex
+     ```
+
+   - VS Code 확장이나 Codex 앱을 써도 됩니다. 설치 방법은 [openai/codex](https://github.com/openai/codex)를 참고하십시오.
+2. **로그인** — cmd · 터미널에서 `codex` 를 실행하고 **Sign in with ChatGPT** 를 고릅니다. 브라우저가 열리면 ChatGPT 계정으로 로그인합니다.
+   - **API 키로 로그인하면 안 됩니다.** 그러면 위젯에 "Codex가 ChatGPT 계정으로 로그인되어 있지 않아요"라고 표시됩니다.
+3. **로그인 파일 확인** — 로그인이 끝나면 아래 파일이 생깁니다. 위젯은 이 파일을 **읽기만** 하며 절대 수정하지 않습니다.
+
+   | OS | 위치 |
+   |---|---|
+   | Windows | `C:\Users\사용자이름\.codex\auth.json` |
+   | Mac | `~/.codex/auth.json` |
+
+   <sub>환경 변수 `CODEX_HOME` 을 설정해 두었다면 그 폴더의 `auth.json` 을 읽습니다.</sub>
+4. **위젯에서 확인** — 따로 입력할 것은 없습니다. 위젯이 이미 켜져 있다면 우클릭 → **지금 새로고침**을 누르거나 2분 정도 기다리면 ChatGPT 사용량이 나타납니다.
+   - Codex에 로그인한 뒤 위젯을 처음 실행하면 ChatGPT는 자동으로 연결되므로 Claude 세션 키도 묻지 않습니다. Claude도 쓰려면 우클릭 → **Claude 세션 키 변경**으로 넣습니다.
+   - **"Codex 로그인이 만료됐어요"** 가 보이면 cmd · 터미널에서 `codex` 를 한 번 실행하거나 VS Code의 Codex 확장을 열면 자동으로 갱신됩니다.
+
+#### 방법 B. 브라우저 쿠키 복사
+
+<p align="center">
+  <img src="docs/images/guide_chatgpt.png" width="100%" alt="크롬 개발자 도구에서 ChatGPT 세션 토큰을 찾는 위치: 1 개발자 도구, 2 Application 탭, 3 Cookies의 https://chatgpt.com, 4 session-token의 Value">
+</p>
+
+1. PC 브라우저에서 [chatgpt.com](https://chatgpt.com)에 로그인합니다.
+2. **chatgpt.com 탭에서** 개발자 도구를 열고 쿠키 목록으로 갑니다. 순서는 [Claude 1단계](#1단계-세션-키-복사하기)와 같고, 사이트 주소만 **`https://chatgpt.com`** 입니다.
+3. **Filter**(필터) 칸에 `session-token` 을 입력합니다.
+4. 보이는 쿠키 모양에 따라 값을 복사합니다.
+   - **`__Secure-next-auth.session-token` 하나만 있을 때** → 그 줄의 **Value** 를 그대로 복사합니다.
+   - **끝에 `.0`, `.1` 이 붙은 두 줄이 있을 때** (값이 너무 길어 둘로 나뉜 경우)
+     1. `.0` 줄의 Value를 복사해 메모장에 붙여넣습니다.
+     2. `.1` 줄의 Value를 복사해 메모장의 **바로 뒤에, 띄어쓰기나 줄바꿈 없이** 붙여넣습니다.
+     3. 메모장의 전체 내용을 복사합니다.
+5. 위젯을 우클릭 → **ChatGPT 연결 설정** → 붙여넣기 → **OK**. (처음 실행할 때는 "ChatGPT 연결" 창에 붙여넣습니다.)
+6. 몇 초 안에 ChatGPT 숫자가 보이면 성공입니다.
+   - **"ChatGPT 세션 토큰이 만료됐어요"** 가 보이면 값이 잘못 복사됐거나 만료된 것입니다. 1번부터 다시 합니다.
+   - **"요청이 차단됐어요"** 가 보이면 `pip install curl_cffi` 를 실행한 뒤 위젯을 다시 켭니다. ChatGPT는 이 패키지가 거의 필수입니다.
+
+> [!TIP]
+> 토큰은 `eyJ` 로 시작하는 **아주 긴 문자열**(수천 자)입니다. 끝까지 다 복사됐는지 확인하십시오.
+> chatgpt.com에서 로그아웃해도 토큰이 만료되니, 복사한 브라우저에서는 로그아웃하지 마십시오.
+
+---
+
+### 등록 정보 바꾸기 · 지우기
+
+| 하고 싶은 것 | 방법 |
+|---|---|
+| **새 값으로 바꾸기** | 우클릭 → **Claude 세션 키 변경** / **ChatGPT 연결 설정** 에서 새 값을 붙여넣습니다. |
+| **화면에서만 숨기기** | 우클릭 → **Claude 표시** / **ChatGPT 표시** 를 끕니다. 등록 정보는 남아 있습니다. |
+| **등록 정보 지우기** | 위젯을 종료한 뒤 [설정 파일](#설정-파일)을 메모장으로 엽니다. Claude는 `"session_key"`, ChatGPT 쿠키는 `"gpt_session_token"` 과 `"gpt_token_cache"` 항목(`{ }` 로 묶인 여러 줄 포함)을 지우고 저장합니다. 마지막 항목을 지웠다면 바로 앞 줄 끝의 쉼표(`,`)도 지웁니다. 잘못 고치면 설정이 초기화되어 처음 실행처럼 키를 다시 묻습니다. 모두 지우려면 설정 파일을 통째로 삭제해도 됩니다. |
+| **Codex 로그인 연결 끊기** | Codex에서 로그아웃합니다. (`~/.codex/auth.json` 이 없어지면 위젯도 더 이상 쓰지 않습니다.) |
+
+
+---
+
 ## 아이폰 위젯
 
 [Scriptable](https://scriptable.app) 앱을 이용한 홈 화면·잠금 화면 위젯입니다. **현재는 Claude 사용량만** 지원합니다.
@@ -199,7 +331,7 @@ nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
 1. App Store에서 **Scriptable**을 설치합니다. (무료)
 2. [`ios/claude_usage_scriptable.js`](ios/claude_usage_scriptable.js) 파일을 열고 **Copy raw file** 버튼(또는 **Raw** 화면에서 전체 선택)으로 내용 전체를 복사합니다.
 3. Scriptable 앱 → 오른쪽 위 **＋** → 붙여넣기를 한 뒤, 위쪽 제목을 `Claude 사용량`처럼 알아보기 쉽게 바꾸고 완료를 누릅니다.
-4. 방금 만든 스크립트를 눌러 실행하고 **세션 키를 입력**합니다. ([복사하는 법](#2-claude-세션-키-복사))
+4. 방금 만든 스크립트를 눌러 실행하고 **세션 키를 입력**합니다. ([세션 키 구하는 법](#claude-등록하기))
    - PC에서 복사한 값은 범용 클립보드·AirDrop처럼 **본인 기기끼리만** 옮기십시오. 메신저로 보내지 마십시오.
    - 세션 키는 아이폰 **키체인**에만 저장됩니다.
 5. 위젯을 추가합니다.
@@ -322,7 +454,7 @@ python claude_usage_widget.pyw
 <summary><b>"Claude 세션 키가 만료됐어요"라고 나옵니다</b></summary>
 
 세션 키는 몇 주가 지나면 만료되며, claude.ai에서 로그아웃해도 만료됩니다.
-[세션 키 복사](#2-claude-세션-키-복사) 방법으로 새 값을 복사한 뒤 **우클릭 → Claude 세션 키 변경**을 선택합니다.
+[Claude 등록하기](#claude-등록하기) 방법으로 새 값을 복사한 뒤 **우클릭 → Claude 세션 키 변경**을 선택합니다.
 
 </details>
 
@@ -330,14 +462,14 @@ python claude_usage_widget.pyw
 <summary><b>"Codex 로그인이 만료됐어요"라고 나옵니다</b></summary>
 
 cmd나 터미널에서 `codex`를 한 번 실행하거나 VS Code의 Codex 확장을 열면 자동으로 갱신됩니다.
-또는 [방법 B (쿠키)](#3-chatgpt-연결-선택)로 연결합니다.
+또는 [방법 B (쿠키)](#방법-b-브라우저-쿠키-복사)로 연결합니다.
 
 </details>
 
 <details>
 <summary><b>"ChatGPT 세션 토큰이 만료됐어요"라고 나옵니다</b></summary>
 
-[방법 B](#3-chatgpt-연결-선택)로 새 값을 복사한 뒤 **우클릭 → ChatGPT 연결 설정**을 선택합니다.
+[방법 B](#방법-b-브라우저-쿠키-복사)로 새 값을 복사한 뒤 **우클릭 → ChatGPT 연결 설정**을 선택합니다.
 
 </details>
 
