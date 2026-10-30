@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-AI 사용량 위젯 v6 — Claude + ChatGPT 젤리 친구들 (Windows / macOS)
+AI 사용량 위젯 v7 — Claude + ChatGPT 스플릿 플랩 (Windows / macOS)
 
-서비스마다 젤리 두 마리:
-  Claude   큰 젤리 = 현재 세션(5시간), 작은 젤리 = 주간 한도
-  ChatGPT  큰 젤리 = 짧은 주기 한도(있을 때), 작은 젤리 = 주간 한도  (Codex 사용량 페이지와 같은 값)
-젤리 몸속 액체 높이가 사용률, 표정이 사용 속도(여유/적정/빠름/위험)예요.
-몸 오른쪽 작은 ◀ 는 "리셋 주기 중 지금까지 흐른 시간"이에요.
+공항 출발 안내판처럼 숫자 카드가 착착 넘어가며 사용률을 보여 줘요.
+  Claude   현재 세션(5시간), 주간 한도
+  ChatGPT  짧은 주기 한도(있을 때), 주간 한도  (Codex 사용량 페이지와 같은 값)
+'속도' 칸은 리셋 주기 중 흐른 시간에 비해 얼마나 빨리 쓰는지(여유/적정/빠름)예요.
 
-- 드래그: 창 이동 / 클릭: 젤리 콕 / 더블클릭: 미니 ↔ 자세히 / ↻ 버튼: 새로고침
+- 드래그: 창 이동 / 클릭: 숫자 섞기 / 더블클릭: 미니 ↔ 자세히 / ↻ 버튼: 새로고침
 - 마우스 휠: 투명도 조절
 - 우클릭 (Mac은 Control+클릭): 메뉴
 
@@ -36,7 +35,7 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog
 
 try:
-    from PIL import Image, ImageChops, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
 except ImportError:
     _r = tk.Tk()
     _r.withdraw()
@@ -56,28 +55,24 @@ IS_MAC = sys.platform == "darwin"
 CONFIG_PATH = Path.home() / ".claude_usage_widget.json"   # 이전 버전 설정을 그대로 이어 써요
 REFRESH_SEC = 120
 
-BG = "#131218"        # 창 바탕 (완전한 검정 대신 살짝 색을 섞은 어두운 색)
-BORDER = "#2A2833"
-FACE = "#17121F"      # 젤리 눈·입
-FG = "#F2F4F8"
-MUTED = "#8D95A7"
-DIM = "#5A6273"
-GOOD = "#34D399"
-BAD = "#FB7185"
-BTN_BG = "#1F1D27"
-BTN_HOVER = "#2E2B39"
+BG = "#0E0E11"        # 창 바탕 (완전한 검정 대신 살짝 색을 섞은 어두운 색)
+BORDER = "#26262C"
+TILE = "#1C1C21"      # 플랩 카드 아래쪽
+TILE_TOP = "#232329"  # 플랩 카드 위쪽 (살짝 밝게)
+SPLIT = "#08080A"     # 카드가 접히는 줄
+FG = "#F2F2F4"
+MUTED = "#8A8A94"
+DIM = "#5E5E68"
+GOOD = "#3DDC97"
+WARN = "#FFB020"
+BAD = "#FF5A4E"
+BTN_BG = "#1C1C21"
+BTN_HOVER = "#2A2A31"
 
 PROVIDERS = ("claude", "gpt")
 NAMES = {"claude": "Claude", "gpt": "ChatGPT"}
 MINI_NAMES = {"claude": "Claude", "gpt": "GPT"}
-BRAND = {"claude": "#D97757", "gpt": "#10A37F"}   # 카드 제목 옆 점
-PALETTES = {                                   # [짧은 주기, 주간] 각각 (밝은 색, 진한 색)
-    "claude": [("#E6D6FF", "#8F62F0"), ("#DCD0FF", "#7A5BE0")],   # 보라 계열
-    "gpt": [("#C6F7DF", "#12B886"), ("#BDF2E6", "#0E9F8A")],      # 초록 계열
-}
-WARN_PALETTE = ("#FDE68A", "#F59E0B")      # 70% 이상
-DANGER_PALETTE = ("#FDA4AF", "#F43F5E")    # 90% 이상
-GREY_PALETTE = ("#9AA1B2", "#5A6273")      # 값이 없을 때
+BRAND = {"claude": "#D97757", "gpt": "#10A37F"}   # 서비스 이름 옆 작은 네모
 
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
@@ -446,254 +441,159 @@ def mix(h1, h2, t):
     return "#%02X%02X%02X" % lerp(hex_rgb(h1), hex_rgb(h2), t)
 
 
-def palette_for(provider, slot, pct):
-    if pct >= 90:
-        return DANGER_PALETTE
-    if pct >= 70:
-        return WARN_PALETTE
-    return PALETTES[provider][slot]
+def value_color(pct):
+    """숫자 색 — 평소 흰색, 70% 이상 주황, 90% 이상 빨강"""
+    return BAD if pct >= 90 else WARN if pct >= 70 else FG
 
 
-def accent(palette):
-    """글자·점에 쓰는 색 — 어두운 바탕에서도 잘 읽히도록 그라데이션 중간보다 밝은 쪽"""
-    return mix(palette[0], palette[1], 0.55)
+def fmt_reset_short(dt):
+    """안내판용 짧은 초기화 시각: '2시간 9분 후' / '11/2(월) 10:06'"""
+    s = fmt_reset(dt)
+    return s[:-4] if s.endswith(" 초기화") else s
 
 
-def number_color(provider, slot, pct):
-    """숫자 색 — 평소엔 흰색, 70% 이상이면 경고색"""
-    return accent(palette_for(provider, slot, pct)) if pct >= 70 else FG
+# ── 플랩 카드에 쓸 글꼴 (이미지로 그려야 넘어가는 모습을 만들 수 있어요)
+def _font_files(kind):
+    if IS_WIN:
+        d = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+        names = {"num": ["bahnschrift.ttf", "segoeuib.ttf", "arialbd.ttf"],
+                 "kor": ["malgunbd.ttf", "malgun.ttf"]}[kind]
+        return [d / n for n in names]
+    if IS_MAC:
+        sup = Path("/System/Library/Fonts/Supplemental")
+        return {"num": [sup / "DIN Condensed Bold.ttf", sup / "DIN Alternate Bold.ttf",
+                        Path("/System/Library/Fonts/Helvetica.ttc")],
+                "kor": [Path("/System/Library/Fonts/AppleSDGothicNeo.ttc")]}[kind]
+    return {"num": [Path("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"),
+                    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+                    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")],
+            "kor": [Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")]}[kind]
 
 
-def mood_for(pct, tp):
-    """젤리 표정: 100% > 90% 이상 > 빠름 > 여유 > 보통"""
-    if pct >= 99.5:
-        return "melt"
-    if pct >= 90:
-        return "danger"
-    pc = pace(pct, tp)
-    if pc and pc[0] == "빠름":
-        return "hurry"
-    if pc and pc[0] == "여유" and pct < 70:
-        return "happy"
-    return "ok"
+_pil_fonts = {}
 
 
-def spring(t, amp=0.15, freq=15.0, decay=4.7):
-    """찌르면 통통 튀다 멈추는 감쇠 진동 (약 2.5Hz, 감쇠비 0.3 — 0.8초쯤 뒤 멈춤)"""
-    if t < 0 or t > 1.2:
-        return 0.0
-    return amp * math.exp(-decay * t) * math.sin(freq * t)
+def pil_font(kind, px):
+    key = (kind, px)
+    if key in _pil_fonts:
+        return _pil_fonts[key]
+    font = None
+    for path in _font_files(kind):
+        if not path.exists():
+            continue
+        try:
+            index = 0
+            if path.suffix.lower() == ".ttc":  # 여러 굵기가 들어 있는 파일이면 Bold를 고름
+                for i in range(24):
+                    try:
+                        style = ImageFont.truetype(str(path), 12, index=i).getname()[1] or ""
+                    except OSError:
+                        break
+                    if style.lower() == "bold":
+                        index = i
+                        break
+            font = ImageFont.truetype(str(path), px, index=index)
+            if path.name.lower() == "bahnschrift.ttf":
+                try:
+                    font.set_variation_by_name("Bold")
+                except Exception:
+                    pass
+            break
+        except OSError:
+            continue
+    if font is None:
+        try:
+            font = ImageFont.load_default(px)
+        except TypeError:
+            font = ImageFont.load_default()
+    _pil_fonts[key] = font
+    return font
 
 
-def render_jelly(w, h, frac, colors, marker, mood, bg, phase=0.0, squash=0.0, blink=False, gaze=(0, 0), ss=3):
-    """젤리 캐릭터 한 마리 (배경이 투명한 RGBA 이미지).
-    몸속 액체 높이 = 사용률, 표정 = 상태, 몸 오른쪽 작은 ◀ = 리셋 주기 중 흐른 시간.
-    squash > 0 이면 납작하게, < 0 이면 길쭉하게 (넓이는 그대로라 말랑해 보임).
-    이미지 크기는 (w*1.4, h*1.3)이고 몸은 가로 45% 지점·바닥에 붙어 있다."""
-    iw, ih = int(w * 1.4), int(h * 1.3)
-    W, H = iw * ss, ih * ss
-    c1, c2 = colors
-    img = Image.new("RGB", (W, H), hex_rgb(bg))
-    alpha = Image.new("L", (W, H), 0)
+_tile_cache = {}
 
-    sx = 1 + squash
-    bw, bh = w * sx * ss, h / sx * ss
-    cx = W * 0.45
-    bottom = H - 2 * ss
-    top = bottom - bh
-    left, right = cx - bw / 2, cx + bw / 2
-    rt, rb = min(bw, bh) * 0.5, bw * 0.24
 
-    def shape(inset):
-        """몸 모양: 위는 둥근 돔, 아래는 살짝 둥근 모서리"""
-        box = [left + inset, top + inset, right - inset, bottom - inset]
-        # 반지름이 변 길이의 절반에 너무 가까우면 Pillow가 오류를 내므로 살짝 줄임
-        lim = min(box[2] - box[0], box[3] - box[1]) / 2 - 1.5
-        m = Image.new("L", (W, H), 0)
-        ImageDraw.Draw(m).rounded_rectangle(box, max(1.0, min(rt - inset, lim)), fill=255)
-        low = Image.new("L", (W, H), 0)
-        ImageDraw.Draw(low).rounded_rectangle(box, max(1.0, min(rb - inset, lim)), fill=255)
-        cut = int(top + rt)
-        m.paste(low.crop((0, cut, W, H)), (0, cut))
-        return m
-
-    body = shape(0)
-    alpha.paste(255, (0, 0, W, H), body)
-
-    # 빈 부분(유리) + 액체 — 부드러운 그라데이션 대신 2~3단 톤
-    img.paste(hex_rgb(mix(c1, bg, 0.62)), (0, 0, W, H), body)
-    frac = max(0.0, min(1.0, frac))
-    if frac > 0.004:
-        ys = bottom - frac * bh
-        amp = 0 if frac > 0.985 else bh * 0.035
-        n = 36
-
-        def wave(dy):
-            return [(left + (right - left) * i / n, ys + dy + amp * math.sin(phase + 2 * math.pi * 1.1 * i / n))
-                    for i in range(n + 1)]
-
-        def region(dy):
-            m = Image.new("L", (W, H), 0)
-            ImageDraw.Draw(m).polygon(wave(dy) + [(right, H), (left, H)], fill=255)
-            return ImageChops.darker(m, body)
-
-        img.paste(hex_rgb(mix(c1, c2, 0.35)), (0, 0, W, H), region(0))          # 윗면 띠
-        img.paste(hex_rgb(mix(c1, c2, 0.72)), (0, 0, W, H), region(bh * 0.09))  # 몸통
-        deep = Image.new("L", (W, H), 0)
-        ImageDraw.Draw(deep).rectangle([0, bottom - bh * 0.22, W, H], fill=255)
-        img.paste(hex_rgb(c2), (0, 0, W, H), ImageChops.darker(deep, region(bh * 0.09)))  # 바닥 쪽 진한 띠
-        if amp:
-            ln = Image.new("L", (W, H), 0)
-            ImageDraw.Draw(ln).line(wave(0), fill=255, width=int(1.4 * ss))
-            img.paste(hex_rgb(mix(c1, "#FFFFFF", 0.5)), (0, 0, W, H), ImageChops.darker(ln, body))
-
-    # 테두리
-    rim = ImageChops.subtract(body, shape(0.9 * ss))
-    img.paste(hex_rgb(mix(c1, "#FFFFFF", 0.2)), (0, 0, W, H), rim.point(lambda v: v * 0.6))
-
-    # 돔 위 반사광
-    hl = Image.new("L", (W, H), 0)
-    hd = ImageDraw.Draw(hl)
-    inset = bw * 0.13
-    hd.arc([left + inset, top + inset, right - inset, top + 2 * rt - inset], 196, 250, fill=255,
-           width=int(bw * 0.075))
-    a = math.radians(262)
-    r0 = rt - inset - bw * 0.0375
-    hx, hy = cx + r0 * math.cos(a), top + rt + r0 * math.sin(a)
-    hd.ellipse([hx - bw * 0.035, hy - bw * 0.035, hx + bw * 0.035, hy + bw * 0.035], fill=255)
-    img.paste((255, 255, 255), (0, 0, W, H), ImageChops.darker(hl, body).point(lambda v: v * 0.6))
-
-    # 얼굴
+def render_tile(ch, w, h, color, kind="num", ss=3):
+    """스플릿 플랩 카드 한 장 (배경이 투명한 RGBA). 가운데 가로줄이 카드가 접히는 자리."""
+    key = (ch, w, h, color, kind)
+    if key in _tile_cache:
+        return _tile_cache[key]
+    W, H = w * ss, h * ss
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    face = hex_rgb(FACE)
-    ex, ey = bw * 0.19, top + bh * 0.52
-    er = min(bw, bh) * 0.062
-    lw = max(1, int(er * 0.75))
-    my = ey + bh * 0.14
-    gx, gy = gaze[0] * er * 0.45, gaze[1] * er * 0.4   # 커서 쪽을 바라보는 눈동자
+    r = max(1.0, h * 0.12) * ss
+    half = H / 2
+    d.rounded_rectangle([0, 0, W - 1, H - 1], r, fill=hex_rgb(TILE))
+    d.rounded_rectangle([0, 0, W - 1, half], r, fill=hex_rgb(TILE_TOP))
+    d.rectangle([0, half - r, W - 1, half], fill=hex_rgb(TILE_TOP))
+    if ch.strip():
+        f = pil_font(kind, int(H * (0.8 if kind == "num" else 0.62)))
+        x0, y0, x1, y1 = d.textbbox((0, 0), ch, font=f)
+        d.text((W / 2 - (x0 + x1) / 2, half - (y0 + y1) / 2), ch, font=f, fill=hex_rgb(color))
+    d.rectangle([0, half - 0.6 * ss, W, half + 0.6 * ss], fill=hex_rgb(SPLIT))   # 접히는 줄
+    pin = max(1.0, w * 0.07) * ss
+    for x in (0.5 * ss, W - pin - 0.5 * ss):                                    # 양옆 경첩
+        d.rectangle([x, half - 1.4 * ss, x + pin, half + 1.4 * ss], fill=hex_rgb(SPLIT))
+    img = img.resize((w, h), Image.LANCZOS)
+    if len(_tile_cache) > 400:
+        _tile_cache.clear()
+    _tile_cache[key] = img
+    return img
 
-    def dot_eye(x):
-        d.ellipse([x + gx - er, ey + gy - er * 1.2, x + gx + er, ey + gy + er * 1.2], fill=face)
-        d.ellipse([x + gx - er * 0.55, ey + gy - er * 0.85, x + gx - er * 0.05, ey + gy - er * 0.35],
-                  fill=(255, 255, 255))
 
-    def line_eye(x):
-        d.line([x - er * 1.1, ey, x + er * 1.1, ey], fill=face, width=lw)
+def flip_frame(a, b, t):
+    """카드가 a에서 b로 넘어가는 중간 그림 (t: 0~1).
+    앞 절반은 위쪽 잎(a의 위 반쪽)이 접히며 내려가고, 뒤 절반은 b의 아래 반쪽이 펼쳐지며 내려온다."""
+    w, h = a.size
+    hh = h // 2
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(b.crop((0, 0, w, hh)), (0, 0))
+    out.paste(a.crop((0, hh, w, h)), (0, hh))
+    if t < 0.5:
+        s = 1 - t / 0.5
+        leaf = a.crop((0, 0, w, hh)).resize((w, max(1, int(hh * s))), Image.BILINEAR)
+        leaf = Image.blend(leaf, Image.new("RGBA", leaf.size, (0, 0, 0, 255)), 0.45 * (1 - s))
+        out.paste(leaf, (0, hh - leaf.height), leaf)
+    else:
+        s = (t - 0.5) / 0.5
+        leaf = b.crop((0, hh, w, h)).resize((w, max(1, int((h - hh) * s))), Image.BILINEAR)
+        leaf = Image.blend(leaf, Image.new("RGBA", leaf.size, (0, 0, 0, 255)), 0.4 * (1 - s))
+        out.paste(leaf, (0, hh), leaf)
+    return out
 
-    def happy_eye(x):
-        d.arc([x - er * 1.3, ey - er * 0.6, x + er * 1.3, ey + er * 1.9], 200, 340, fill=face, width=lw)
 
-    def x_eye(x):
-        e = er * 0.95
-        d.line([x - e, ey - e, x + e, ey + e], fill=face, width=lw)
-        d.line([x - e, ey + e, x + e, ey - e], fill=face, width=lw)
+CYCLE = " 0123456789"   # 실제 안내판처럼 숫자는 차례대로 넘어가요
+FLIP_SEC = 0.09         # 카드 한 장 넘어가는 시간
 
-    def ring_eye(x):
-        d.ellipse([x - er * 1.15, ey - er * 1.15, x + er * 1.15, ey + er * 1.15], outline=face, width=lw)
-        d.ellipse([x - er * 0.35, ey - er * 0.35, x + er * 0.35, ey + er * 0.35], fill=face)
 
-    def chevron_eye(x, s):
-        d.line([x - er * s, ey - er, x + er * s, ey, x - er * s, ey + er], fill=face, width=lw, joint="curve")
-
-    def blush():
-        for s in (-1, 1):
-            bx = cx + s * (ex + er * 0.9)
-            d.ellipse([bx - er * 1.1, my - er * 0.9, bx + er * 1.1, my - er * 0.1],
-                      fill=hex_rgb(mix(c2, "#FF6B9A", 0.55)))
-
-    def smile(wd, opened=False):
-        mw = bw * wd
-        if opened:
-            d.chord([cx - mw, my - mw * 0.9, cx + mw, my + mw * 0.9], 0, 180, fill=face)
-        else:
-            d.arc([cx - mw, my - mw * 0.9, cx + mw, my + mw * 0.6], 20, 160, fill=face, width=lw)
-
-    def flat():
-        d.line([cx - bw * 0.07, my + er * 0.3, cx + bw * 0.07, my + er * 0.3], fill=face, width=lw)
-
-    def wavy():
-        pts = [(cx - bw * 0.11 + bw * 0.22 * i / 8, my + er * 0.3 + er * 0.45 * math.sin(i * math.pi / 2))
-               for i in range(9)]
-        d.line(pts, fill=face, width=lw, joint="curve")
-
-    def o_mouth():
-        r = er * 0.75
-        d.ellipse([cx - r, my - r * 0.6, cx + r, my + r * 1.2], fill=face)
-
-    def sweat():
-        sx_, sy_, r = right - bw * 0.16, top + bh * 0.3, bw * 0.07
-        col = (143, 211, 255)
-        d.ellipse([sx_ - r, sy_, sx_ + r, sy_ + 2 * r], fill=col)
-        d.polygon([(sx_ - r * 0.85, sy_ + r * 0.6), (sx_, sy_ - r * 1.3), (sx_ + r * 0.85, sy_ + r * 0.6)], fill=col)
-
-    eye = line_eye if blink else dot_eye
-    if mood == "happy":
-        for s in (-1, 1):
-            (line_eye if blink else happy_eye)(cx + s * ex)
-        blush()
-        smile(0.13, opened=True)
-    elif mood == "hurry":
-        for s in (-1, 1):
-            eye(cx + s * ex)
-        wavy()
-        sweat()
-    elif mood == "danger":
-        chevron_eye(cx - ex, 1)
-        chevron_eye(cx + ex, -1)
-        o_mouth()
-        sweat()
-    elif mood == "melt":  # 100% — 녹아서 어질어질
-        for s in (-1, 1):
-            ring_eye(cx + s * ex)
-        wavy()
-    elif mood == "dead":
-        for s in (-1, 1):
-            x_eye(cx + s * ex)
-        flat()
-    elif mood == "sleep":
-        for s in (-1, 1):
-            line_eye(cx + s * ex)
-        flat()
-    elif mood == "loading":
-        for s in (-1, 1):
-            eye(cx + s * ex)
-        o_mouth()
-    else:  # ok
-        for s in (-1, 1):
-            eye(cx + s * ex)
-        smile(0.1)
-
-    # 흐른 시간 표시: 몸 오른쪽 바깥의 작은 흰 삼각형 ◀
-    if marker is not None:
-        ym = bottom - max(0.0, min(1.0, marker)) * bh
-        ym = max(top + bh * 0.08, min(bottom - bh * 0.04, ym))
-        dy = (top + rt) - ym
-        edge = cx + (bw / 2 - rt) + math.sqrt(max(0.0, rt * rt - dy * dy)) if dy > 0 else right
-        t = w * ss * 0.1
-        tip = edge + 1.5 * ss
-        tri = [(tip, ym), (tip + t * 1.2, ym - t * 0.75), (tip + t * 1.2, ym + t * 0.75)]
-        d.polygon(tri, fill=(244, 246, 250))
-        ImageDraw.Draw(alpha).polygon(tri, fill=255)
-
-    img.putalpha(alpha)
-    return img.resize((iw, ih), Image.LANCZOS)
+def flip_sequence(cur, target, cycle=True):
+    """cur에서 target까지 넘겨야 할 글자들"""
+    if cur == target:
+        return []
+    if cycle and cur in CYCLE and target in CYCLE:
+        i, j = CYCLE.index(cur), CYCLE.index(target)
+        steps = (j - i) % len(CYCLE)
+        return [CYCLE[(i + k) % len(CYCLE)] for k in range(1, steps + 1)]
+    return [target]
 
 
 # ─── 위젯 ─────────────────────────────────────────────
 class Widget:
-    # 자세히 보기
-    WIDTH = 280
-    TOP = 6          # 위쪽 여백
-    BLOCK_H = 112    # 서비스 한 칸 높이
+    # 자세히 보기 (출발 안내판 모양)
+    WIDTH = 300
+    HEAD_H = 24      # 맨 위 열 제목 줄
+    BLOCK_H = 90     # 서비스 한 칸 높이
     FOOT_H = 24
-    BIG = (48, 53)   # 큰 젤리(짧은 주기) 몸 크기
-    SMALL = (34, 37)  # 작은 젤리(주간)
+    TILE = (14, 21)  # 사용률 카드
+    STAT = (13, 18)  # 속도 카드 (여유/적정/빠름)
+    COL_VAL = 86     # 열 위치
+    COL_STAT = 170
     # 미니 모드
-    MINI_H = 90
-    MINI_W = 100     # 서비스 한 칸 폭
-    MINI_PAD = 8
-    MINI_BIG = (40, 44)
-    MINI_SMALL = (28, 31)
+    MINI_H = 66
+    MINI_PAD = 12
+    MINI_BIG = (15, 23)    # 짧은 주기
+    MINI_SMALL = (12, 18)  # 주간
+    MINI_GAP = 18          # 서비스 사이 간격
 
     OPACITY_STEPS = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3)
 
@@ -722,10 +622,8 @@ class Widget:
             return next((f for f in cands if f in fams), fallback)
 
         if IS_MAC:
-            self.num_font = pick(["Avenir Next", "Helvetica Neue"], "Helvetica")
             self.txt_font = pick(["Apple SD Gothic Neo"], "Helvetica")
         else:
-            self.num_font = pick(["Segoe UI Variable Display", "Segoe UI"], "Arial")
             self.txt_font = pick(["Malgun Gothic", "맑은 고딕"], "Arial")
 
         self.q = queue.Queue()
@@ -734,16 +632,9 @@ class Widget:
         self.last_ok = None
         self.fetching = set()
         self.compact = self.cfg.get("compact", False)
-        self.shown, self.target, self.anim_from = {}, {}, {}
-        self.anim_t0 = 0.0
+        self.flaps = {}              # (서비스, 칸, 종류) → 카드 목록 [{"cur", "queue", "t0", "color"}]
         self.anim_job = None
-        self.fx_until = 0.0          # 이 시각까지 물결·흔들림 애니메이션
-        self.phases = {}             # 서비스별 물결 위상
-        self.wave_until = {}         # 서비스별로 이 시각까지 물결이 움직임
-        self.wobble_t0 = {}          # 서비스별 흔들기 시작 시각
-        self.last_hover_wobble = 0.0
-        self.blinking = None         # 지금 눈 깜빡이는 젤리 (서비스, 칸)
-        self.gaze = (0, 0)           # 젤리 눈동자가 바라보는 방향 (-1~1, -1~1)
+        self.last_hover = 0.0
         self._drag = None
         self._press = None
         self._press_btn = False
@@ -755,7 +646,7 @@ class Widget:
         self.spin_job = None
         self._size = None
         self._panel_cache = {}
-        self._jelly_cache = {}
+        self._photo_cache = {}
         self._shape_cache = {}
         self._font_cache = {}
 
@@ -768,8 +659,6 @@ class Widget:
         self.root.after(30_000, self.tick)
         self.root.after(REFRESH_SEC * 1000, self.auto_refresh)
         self.root.after(2000, self.keep_on_top)
-        self.root.after(3000, self.blink)
-        self.root.after(500, self.track_pointer)
 
     # ── 표시할 서비스
     def providers(self):
@@ -919,10 +808,6 @@ class Widget:
         self.set_hover(win=True)
         if self.revealing():
             self.apply_opacity(1.0)
-        now = time.perf_counter()
-        if now - self.last_hover_wobble > 1.5:  # 마우스를 올리면 한 번 말랑
-            self.last_hover_wobble = now
-            self.kick(1.2, wobble=self.providers())
 
     def on_leave(self, e):
         self.set_hover(win=False, btn=False)
@@ -938,37 +823,35 @@ class Widget:
             d = ImageDraw.Draw(img)
             line = max(1, int(S * ss))
             if self.alpha_mode:
-                d.rounded_rectangle([0, 0, w * ss - 1, h * ss - 1], radius=int(18 * S * ss),
+                d.rounded_rectangle([0, 0, w * ss - 1, h * ss - 1], radius=int(16 * S * ss),
                                     fill=hex_rgb(BG) + (255,), outline=hex_rgb(BORDER) + (255,), width=line)
             m = int(12 * S) * ss
             for i in range(1, n):  # 서비스 사이 구분선
                 if self.compact:
-                    x = self.mini_x(i) * ss
+                    x = (self.mini_x(i) - int(self.MINI_GAP * S / 2)) * ss
                     d.rectangle([x, m, x + line - 1, h * ss - m], fill=hex_rgb(BORDER) + (255,))
                 else:
                     y = self.block_y(i) * ss
                     d.rectangle([m, y, w * ss - m, y + line - 1], fill=hex_rgb(BORDER) + (255,))
             img = img.resize((w, h), Image.LANCZOS)
-            a = img.getchannel("A")
-            grain = Image.effect_noise((w, h), 24).convert("RGB")  # 밋밋하지 않게 아주 옅은 질감
-            img = Image.blend(img.convert("RGB"), grain, 0.035)
-            if self.alpha_mode:
-                img.putalpha(a)
-            self._panel_cache[key] = self.ImageTk.PhotoImage(img)
+            self._panel_cache[key] = self.ImageTk.PhotoImage(img if self.alpha_mode else img.convert("RGB"))
         return self._panel_cache[key]
 
-    def shape_photo(self, kind, w, h, fill, bg, outline=None):
-        """부드러운 가장자리의 점(dot)·알약(pill) 이미지"""
-        key = (kind, w, h, fill, bg, outline)
+    def shape_photo(self, kind, w, h, fill, outline=None):
+        """부드러운 가장자리의 점(dot)·네모(square)·알약(pill) 이미지"""
+        key = (kind, w, h, fill, outline)
         if key not in self._shape_cache:
             ss = 4
             img = Image.new("RGB", (w * ss, h * ss), hex_rgb(fill))
             mask = Image.new("L", img.size, 0)
             box = [0, 0, w * ss - 1, h * ss - 1]
+            md = ImageDraw.Draw(mask)
             if kind == "dot":
-                ImageDraw.Draw(mask).ellipse(box, fill=255)
+                md.ellipse(box, fill=255)
+            elif kind == "square":
+                md.rounded_rectangle(box, radius=ss, fill=255)
             else:
-                ImageDraw.Draw(mask).rounded_rectangle(box, radius=h * ss // 2, fill=255)
+                md.rounded_rectangle(box, radius=h * ss // 2, fill=255)
                 if outline:
                     ImageDraw.Draw(img).rounded_rectangle(box, radius=h * ss // 2, outline=hex_rgb(outline),
                                                           width=max(1, int(self.S * ss)))
@@ -976,70 +859,161 @@ class Widget:
             self._shape_cache[key] = self.ImageTk.PhotoImage(img.resize((w, h), Image.LANCZOS))
         return self._shape_cache[key]
 
-    def jelly_photo(self, p, slot, size):
-        """서비스 p의 slot번째 한도를 젤리로 (값이 없으면 회색 젤리)"""
-        S, now = self.S, time.perf_counter()
-        w, h = int(size[0] * S), int(size[1] * S)
-        d = self.data[p]
-        wins = d["windows"]
-        if slot < len(wins):
-            win = wins[slot]
-            pct = self.shown.get((p, win["key"]), 0.0)
-            tp = time_progress(win)
-            frac, colors, marker, mood = pct / 100, palette_for(p, slot, pct), tp, mood_for(win["pct"], tp)
-            melt = 0.3 * max(0.0, min(1.0, (pct - 97) / 3))  # 100%에 가까우면 녹아서 퍼짐
-        else:
-            frac, colors, marker, melt = 0.0, GREY_PALETTE, None, 0.0
-            if p in self.fetching and not d["error"]:
-                mood = "loading"
-            else:
-                mood = "dead" if d["error"] and not d["notice"] else "sleep"
-        squash = melt + spring(now - self.wobble_t0.get(p, -9) - 0.07 * slot)
-        key = (w, h, round(frac, 3), colors, None if marker is None else round(marker, 3), mood,
-               round(self.phases.get(p, 0.0) + slot * 1.7, 2), round(squash, 3),
-               self.blinking == (p, slot), self.gaze)
-        if key not in self._jelly_cache:
-            if len(self._jelly_cache) > 120:
-                self._jelly_cache.clear()
-            img = render_jelly(w, h, frac, colors, marker, mood, BG, phase=key[6], squash=squash,
-                               blink=key[8], gaze=self.gaze)
-            self._jelly_cache[key] = self.ImageTk.PhotoImage(img)
-        return self._jelly_cache[key]
-
-    def font(self, size, bold=False, num=False):
-        key = (size, bold, num)
+    def font(self, size, bold=False):
+        key = (size, bold)
         if key not in self._font_cache:
-            self._font_cache[key] = tkfont.Font(root=self.root, family=self.num_font if num else self.txt_font,
-                                                size=size, weight="bold" if bold else "normal")
+            self._font_cache[key] = tkfont.Font(root=self.root, family=self.txt_font, size=size,
+                                                weight="bold" if bold else "normal")
         return self._font_cache[key]
 
+    # ── 플랩 카드
+    def flap_group(self, key):
+        return self.flaps.setdefault(key, [])
+
+    def set_flaps(self, key, text, color, cycle=True, stagger=0.06):
+        """key 자리의 카드들이 text를 보이도록 넘김 (이미 같으면 그대로)"""
+        tiles = self.flap_group(key)
+        now = time.perf_counter()
+        while len(tiles) < len(text):
+            tiles.insert(0, {"cur": " ", "queue": [], "t0": now, "color": color})
+        del tiles[:len(tiles) - len(text)]
+        for i, (tile, ch) in enumerate(zip(tiles, text)):
+            end = tile["queue"][-1] if tile["queue"] else tile["cur"]
+            tile["color"] = color
+            if end == ch:
+                continue
+            start = tile["cur"]
+            tile["queue"] = flip_sequence(start, ch, cycle)
+            tile["t0"] = now + (len(text) - 1 - i) * stagger   # 오른쪽 카드부터 차례로
+        self.start_anim()
+
+    def shuffle_flaps(self, key, rounds=4):
+        """클릭하면 숫자가 한 번 섞였다가 제자리로"""
+        now = time.perf_counter()
+        for i, tile in enumerate(self.flap_group(key)):
+            end = tile["queue"][-1] if tile["queue"] else tile["cur"]
+            if end not in "0123456789":
+                continue
+            tile["queue"] = [random.choice("0123456789") for _ in range(rounds)] + [end]
+            tile["t0"] = now + i * 0.05
+        self.start_anim()
+
+    def step_flaps(self, now):
+        """시간이 지난 만큼 카드를 넘김. 아직 넘어가는 카드가 있으면 True."""
+        busy = False
+        for tiles in self.flaps.values():
+            for tile in tiles:
+                while tile["queue"] and now - tile["t0"] >= FLIP_SEC:
+                    tile["cur"] = tile["queue"].pop(0)
+                    tile["t0"] += FLIP_SEC
+                busy = busy or bool(tile["queue"])
+        return busy
+
+    def tile_photo(self, tile, size, kind, now):
+        S = self.S
+        w, h = int(size[0] * S), int(size[1] * S)
+        if tile["queue"] and now >= tile["t0"]:
+            step = min(7, int((now - tile["t0"]) / FLIP_SEC * 8))   # 넘어가는 모습 8단계
+            key = ("flip", tile["cur"], tile["queue"][0], w, h, tile["color"], kind, step)
+            if key not in self._photo_cache:
+                a = render_tile(tile["cur"], w, h, tile["color"], kind)
+                b = render_tile(tile["queue"][0], w, h, tile["color"], kind)
+                self._photo_cache[key] = self.ImageTk.PhotoImage(flip_frame(a, b, (step + 0.5) / 8))
+        else:
+            key = ("tile", tile["cur"], w, h, tile["color"], kind)
+            if key not in self._photo_cache:
+                self._photo_cache[key] = self.ImageTk.PhotoImage(render_tile(tile["cur"], w, h, tile["color"], kind))
+        if len(self._photo_cache) > 600:
+            self._photo_cache.clear()
+            return self.tile_photo(tile, size, kind, now)
+        return self._photo_cache[key]
+
+    def draw_flaps(self, key, x, cy, size, kind="num", gap=1.5, now=None):
+        """카드들을 왼쪽 x부터 나란히 그리고 오른쪽 끝 x를 돌려줌"""
+        S, cv = self.S, self.canvas
+        now = now or time.perf_counter()
+        for tile in self.flap_group(key):
+            cv.create_image(x, cy, anchor="w", image=self.tile_photo(tile, size, kind, now))
+            x += (size[0] + gap) * S
+        return x - gap * S
+
+    def flap_width(self, key, size, gap=1.5):
+        n = max(2, len(self.flap_group(key)))
+        return (n * (size[0] + gap) - gap) * self.S
+
+    # ── 값 → 카드
+    def sync(self, p=None):
+        """데이터(또는 시간 흐름)에 맞게 카드 목표를 다시 정함"""
+        for p in ([p] if p else PROVIDERS):
+            d = self.data[p]
+            wins = d["windows"][:2]
+            for slot in range(2):
+                if slot < len(wins):
+                    w = wins[slot]
+                    pct = max(0, min(100, round(w["pct"])))
+                    self.set_flaps((p, slot, "v"), f"{pct:>2}", value_color(pct))
+                    pc = pace(w["pct"], time_progress(w))
+                    self.set_flaps((p, slot, "s"), pc[0] if pc else "  ", pc[1] if pc else MUTED, cycle=False)
+                elif slot == 0 or not wins:
+                    if p in self.fetching and not d["error"]:
+                        continue  # 불러오는 중에는 step에서 숫자를 섞음
+                    col = BAD if d["error"] and not d["notice"] else DIM
+                    self.set_flaps((p, slot, "v"), "--", col, cycle=False)
+                    self.set_flaps((p, slot, "s"), "  ", MUTED, cycle=False)
+
+    def loading_shuffle(self):
+        """불러오는 동안 값이 없는 서비스의 숫자 카드가 계속 돌아감"""
+        busy = False
+        for p in self.providers():
+            d = self.data[p]
+            if p not in self.fetching or d["windows"] or d["error"]:
+                continue
+            for slot in range(2):
+                tiles = self.flap_group((p, slot, "v"))
+                if not tiles:
+                    self.set_flaps((p, slot, "v"), "  ", MUTED, cycle=False)
+                for tile in tiles:
+                    tile["color"] = MUTED
+                    if not tile["queue"]:
+                        tile["queue"] = [random.choice("0123456789")]
+                        tile["t0"] = time.perf_counter()
+                busy = True
+        return busy
+
     # ── 크기 계산
+    def mini_group_w(self, p):
+        S = self.S
+        return (self.flap_width((p, 0, "v"), self.MINI_BIG) + 7 * S
+                + self.flap_width((p, 1, "v"), self.MINI_SMALL, 1.2))
+
     def dims(self):
-        S, n = self.S, len(self.providers())
+        S, ps = self.S, self.providers()
         if self.compact:
-            return int((self.MINI_PAD * 2 + n * self.MINI_W) * S), int(self.MINI_H * S)
-        return int(self.WIDTH * S), int((self.TOP + n * self.BLOCK_H + self.FOOT_H) * S)
+            w = self.MINI_PAD * 2 * S + sum(self.mini_group_w(p) for p in ps) + self.MINI_GAP * S * (len(ps) - 1)
+            return int(w + 10 * S), int(self.MINI_H * S)
+        return int(self.WIDTH * S), int((self.HEAD_H + len(ps) * self.BLOCK_H + self.FOOT_H) * S)
 
     def block_y(self, i):
-        return int((self.TOP + i * self.BLOCK_H) * self.S)
+        return int((self.HEAD_H + i * self.BLOCK_H) * self.S)
 
     def mini_x(self, i):
-        return int((self.MINI_PAD + i * self.MINI_W) * self.S)
+        S, ps = self.S, self.providers()
+        return int(self.MINI_PAD * S + sum(self.mini_group_w(p) + self.MINI_GAP * S for p in ps[:i]))
 
     def button_pos(self):
         S = self.S
         W, H = self.dims()
         if self.compact:
-            return W - 13 * S, 13 * S, 8 * S
+            return W - 11 * S, 12 * S, 7 * S
         return W - 18 * S, H - self.FOOT_H * S / 2 - 1 * S, 9 * S
 
     def provider_at(self, x, y):
         ps = self.providers()
         for i, p in enumerate(ps):
             if self.compact:
-                if self.mini_x(i) <= x < self.mini_x(i + 1):
+                if self.mini_x(i) <= x < self.mini_x(i) + self.mini_group_w(p) + self.MINI_GAP * self.S:
                     return p
-            elif self.block_y(i) <= y < self.block_y(i + 1):
+            elif self.block_y(i) <= y < self.block_y(i) + self.BLOCK_H * self.S:
                 return p
         return None
 
@@ -1052,101 +1026,101 @@ class Widget:
             self._size = (W, H)
             cv.config(width=W, height=H)
             self.root.geometry(f"{W}x{H}")
+            self._panel_cache.clear()
         cv.create_image(0, 0, anchor="nw", image=self.panel_photo(W, H))
 
-        for i, p in enumerate(self.providers()):
-            if self.compact:
-                self.draw_mini(p, self.mini_x(i))
-            else:
-                self.draw_block(p, self.block_y(i), W)
-
-        if not self.compact and self.last_ok:
-            bx, by, br = self.button_pos()
-            cv.create_text(bx - br - 6 * S, by, text=f"{self.last_ok:%H:%M} 업데이트",
-                           anchor="e", fill=DIM, font=self.font(7))
+        now = time.perf_counter()
+        if self.compact:
+            for i, p in enumerate(self.providers()):
+                self.draw_mini(p, self.mini_x(i), now)
+        else:
+            hy = self.HEAD_H * S / 2 + 2 * S   # 열 제목 (안내판 머리줄)
+            for text, x, anchor in (("한도", 14 * S, "w"), ("사용률", self.COL_VAL * S, "w"),
+                                    ("속도", self.COL_STAT * S, "w"), ("초기화", W - 14 * S, "e")):
+                cv.create_text(x, hy, text=text, anchor=anchor, fill=DIM, font=self.font(7))
+            for i, p in enumerate(self.providers()):
+                self.draw_block(p, self.block_y(i), W, now)
+            if self.last_ok:
+                bx, by, br = self.button_pos()
+                cv.create_text(bx - br - 6 * S, by, text=f"{self.last_ok:%H:%M} 업데이트",
+                               anchor="e", fill=DIM, font=self.font(7))
         self.draw_button()
 
-    def draw_pct(self, cx, cy, pct, size, color):
-        """'34%' — 숫자는 크게, %는 작게, 가운데 정렬"""
-        cv = self.canvas
-        fb, fs = self.font(size, True, True), self.font(max(6, size * 6 // 10), True, True)
-        num = f"{pct:.0f}"
-        nw, pw = fb.measure(num), fs.measure("%")
-        x = cx - (nw + pw) / 2
-        base = cy + fb.metrics("ascent") * 0.36
-        cv.create_text(x, base + fb.metrics("descent"), text=num, anchor="sw", fill=color, font=fb)
-        cv.create_text(x + nw, base + fs.metrics("descent"), text="%", anchor="sw", fill=MUTED, font=fs)
-
-    def draw_pair(self, p, x, y_bottom, big, small, gap, num_y, sizes):
-        """큰 젤리(짧은 주기) + 작은 젤리(주간)와 그 아래 숫자"""
-        S, cv = self.S, self.canvas
-        wins = self.data[p]["windows"]
-        x2 = x + int((big[0] * 1.4 + gap) * S)
-        for slot, (jx, size, fsize) in enumerate(((x, big, sizes[0]), (x2, small, sizes[1]))):
-            if slot >= len(wins) and wins:
-                continue  # 주간 한도만 있는 요금제 등
-            img = self.jelly_photo(p, slot, size)
-            cv.create_image(jx, y_bottom, anchor="sw", image=img)
-            if slot < len(wins):
-                pct = self.shown.get((p, wins[slot]["key"]), 0.0)
-                self.draw_pct(jx + size[0] * 1.4 * 0.45 * S, num_y, pct, fsize, number_color(p, slot, pct))
-
-    def draw_pill(self, x, cy, text, color, outline=False, anchor="e"):
-        """알약 모양 배지 — anchor="e"면 오른쪽 끝, "w"면 왼쪽 끝을 x에 맞춤"""
+    def draw_pill(self, x, cy, text, color, anchor="e"):
+        """테두리만 있는 알약 모양 배지"""
         S, cv = self.S, self.canvas
         f = self.font(7, True)
         w, h = int(f.measure(text) + 12 * S), int(15 * S)
-        fill = BG if outline else mix(BG, color, 0.18)
-        img = self.shape_photo("pill", w, h, fill, BG, mix(BG, color, 0.45) if outline else None)
-        cv.create_image(x, cy, anchor=anchor, image=img)
+        cv.create_image(x, cy, anchor=anchor, image=self.shape_photo("pill", w, h, BG, mix(BG, color, 0.45)))
         cv.create_text(x - w / 2 if anchor == "e" else x + w / 2, cy, text=text, fill=color, font=f)
 
-    def draw_block(self, p, y0, W):
+    def draw_name(self, p, x, cy, size=8):
+        S, cv = self.S, self.canvas
+        sq = int(6 * S)
+        cv.create_image(x, cy, anchor="w", image=self.shape_photo("square", sq, sq, BRAND[p]))
+        cv.create_text(x + sq + 5 * S, cy, text=NAMES[p].upper() if not self.compact else MINI_NAMES[p].upper(),
+                       anchor="w", fill=MUTED, font=self.font(size, True))
+
+    def draw_block(self, p, y0, W, now):
         S, cv = self.S, self.canvas
         d = self.data[p]
         x0, x1 = 14 * S, W - 14 * S
-
-        self.draw_pair(p, 8 * S, y0 + 90 * S, self.BIG, self.SMALL, 0, y0 + 99 * S, (10, 8))
-
-        hy = y0 + 16 * S
-        dot = int(7 * S)
-        cv.create_image(x0, hy, anchor="w", image=self.shape_photo("dot", dot, dot, BRAND[p], BG))
-        cv.create_text(x0 + dot + 6 * S, hy, text=NAMES[p], anchor="w", fill=FG, font=self.font(10, True))
+        self.draw_name(p, x0, y0 + 13 * S)
         if d["plan"]:
-            self.draw_pill(x1, hy, d["plan"].upper(), MUTED, outline=True)
+            self.draw_pill(x1, y0 + 13 * S, d["plan"].upper(), MUTED)
 
-        tx = 134 * S
-        if not d["windows"]:
-            if p in self.fetching and not d["error"]:
-                msg, col = "불러오는 중…", MUTED
-            else:
-                msg, col = d["error"] or "", MUTED if d["notice"] else BAD
-            cv.create_text(tx, y0 + 32 * S, text=msg, anchor="nw", width=x1 - tx, fill=col, font=self.font(8))
-            return
+        wins = d["windows"][:2]
+        rows = max(1, len(wins))
+        for slot in range(min(2, rows if wins else 1)):
+            cy = y0 + (36 + slot * 28) * S
+            label = wins[slot]["label"] if slot < len(wins) else ""
+            cv.create_text(x0, cy, text=label, anchor="w", fill=FG, font=self.font(9))
+            xr = self.draw_flaps((p, slot, "v"), self.COL_VAL * S, cy, self.TILE, now=now)
+            cv.create_text(xr + 3 * S, cy + 4 * S, text="%", anchor="w", fill=DIM, font=self.font(7, True))
+            self.draw_flaps((p, slot, "s"), self.COL_STAT * S, cy, self.STAT, kind="kor", gap=1.2, now=now)
+            if slot < len(wins):
+                cv.create_text(x1, cy, text=fmt_reset_short(wins[slot]["reset"]), anchor="e", fill=MUTED,
+                               font=self.font(8))
 
-        y = y0 + 40 * S
-        for slot, w in enumerate(d["windows"][:2]):
-            cv.create_text(tx, y, text=w["label"], anchor="w", fill=FG, font=self.font(8, True))
-            pc = pace(w["pct"], time_progress(w))
-            if pc:
-                self.draw_pill(x1, y, pc[0], pc[1])
-            cv.create_text(tx, y + 15 * S, text=fmt_reset(w["reset"]), anchor="w", fill=MUTED, font=self.font(7))
-            y += 32 * S
-
-        if d["error"]:  # 이전 값은 그대로 두고 아래에 한 줄로
-            cv.create_text(tx, y0 + self.BLOCK_H * S - 4 * S, text=d["error"], anchor="sw", width=x1 - tx,
-                           fill=MUTED if d["notice"] else BAD, font=self.font(7))
+        msg = None
+        if d["error"]:
+            msg, col = d["error"], (MUTED if d["notice"] else BAD)
+        elif not wins and p in self.fetching:
+            msg, col = "불러오는 중…", MUTED
+        if msg and not wins:
+            cv.create_text(x0, y0 + 52 * S, text=msg, anchor="nw", width=x1 - x0, fill=col, font=self.font(8))
+        elif msg:
+            cv.create_text(x0, y0 + 84 * S, text=msg, anchor="sw", width=x1 - x0, fill=col, font=self.font(7))
         elif d["extras"]:
-            cv.create_text(tx, y0 + 104 * S, text="  ·  ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
+            cv.create_text(x0, y0 + 80 * S, text="  ·  ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
                            anchor="w", fill=DIM, font=self.font(7))
 
-    def draw_mini(self, p, x):
+    def draw_mini(self, p, x, now):
         S, cv = self.S, self.canvas
-        self.draw_pair(p, x + 2 * S, 70 * S, self.MINI_BIG, self.MINI_SMALL, -2, 79 * S, (10, 8))
-        dot = int(6 * S)
-        cv.create_image(x + 8 * S, 13 * S, anchor="w", image=self.shape_photo("dot", dot, dot, BRAND[p], BG))
-        cv.create_text(x + 8 * S + dot + 4 * S, 13 * S, text=MINI_NAMES[p], anchor="w", fill=MUTED,
-                       font=self.font(7, True))
+        d = self.data[p]
+        wins = d["windows"][:2]
+        self.draw_name(p, x, 12 * S, size=7)
+        base = 44 * S   # 카드 아래쪽 맞춤
+        bx = x
+        xr = self.draw_flaps((p, 0, "v"), bx, base - self.MINI_BIG[1] * S / 2, self.MINI_BIG, now=now)
+        sx = xr + 7 * S
+        xr2 = sx
+        if len(wins) > 1 or not wins:
+            xr2 = self.draw_flaps((p, 1, "v"), sx, base - self.MINI_SMALL[1] * S / 2, self.MINI_SMALL, gap=1.2,
+                                  now=now)
+        labels = [(wins[0]["short"] if wins else "", bx)]
+        if len(wins) > 1:
+            labels.append((wins[1]["short"], sx))
+        for text, lx in labels:
+            cv.create_text(lx, 54 * S, text=text, anchor="w", fill=DIM, font=self.font(7))
+        # 시간보다 빨리 쓰고 있으면 카드 오른쪽 위에 작은 빨간 램프
+        for slot, (left, right, top) in enumerate(((bx, xr, base - self.MINI_BIG[1] * S),
+                                                  (sx, xr2, base - self.MINI_SMALL[1] * S))):
+            if slot < len(wins):
+                pc = pace(wins[slot]["pct"], time_progress(wins[slot]))
+                if pc and pc[0] == "빠름":
+                    r = int(4 * S)
+                    cv.create_image(right + 2 * S, top - 1 * S, anchor="sw", image=self.shape_photo("dot", r, r, BAD))
 
     # ── 새로고침 버튼
     def draw_button(self):
@@ -1157,7 +1131,7 @@ class Widget:
             return
         cx, cy, r = self.button_pos()
         dia = int(2 * r)
-        cv.create_image(cx, cy, image=self.shape_photo("dot", dia, dia, BTN_HOVER if self.hover_btn else BTN_BG, BG),
+        cv.create_image(cx, cy, image=self.shape_photo("dot", dia, dia, BTN_HOVER if self.hover_btn else BTN_BG),
                         tags="btn")
         ri, lw = r * 0.5, max(1.0, 1.4 * S)
         color = FG if (self.hover_btn or busy) else MUTED
@@ -1201,71 +1175,19 @@ class Widget:
     def on_motion(self, e):
         self.set_hover(win=True, btn=self.over_button(e.x, e.y))
 
-    # ── 애니메이션
-    def animate(self, changed=()):
-        self.anim_from = dict(self.shown)
-        self.target = {(p, w["key"]): w["pct"] for p in PROVIDERS for w in self.data[p]["windows"]}
-        self.anim_t0 = time.perf_counter()
-        self.kick(1.4, wobble=changed)
-
-    def kick(self, secs, wobble=()):
-        """wobble에 있는 서비스의 젤리를 흔들고 secs초 동안 물결을 움직인다"""
-        now = time.perf_counter()
-        self.fx_until = max(self.fx_until, now + secs)
-        for p in wobble:
-            self.wobble_t0[p] = now
-            self.wave_until[p] = max(self.wave_until.get(p, 0.0), now + secs)
+    # ── 애니메이션 (카드가 넘어가는 동안만 돌아감)
+    def start_anim(self):
         if not self.anim_job:
-            self._anim_step()
+            self.anim_job = self.root.after(1, self._anim_step)
 
     def _anim_step(self):
         now = time.perf_counter()
-        t = min(1.0, (now - self.anim_t0) / 0.9)
-        e = 1 - (1 - t) ** 3
-        for k, v in self.target.items():
-            a = self.anim_from.get(k, 0.0)
-            self.shown[k] = a + (v - a) * e
-        for p, until in self.wave_until.items():
-            if now < until:
-                self.phases[p] = (self.phases.get(p, 0.0) + 0.45) % (2 * math.pi)
+        busy = self.loading_shuffle()
+        busy = self.step_flaps(now) or busy
         self.redraw()
-        spent = int((time.perf_counter() - now) * 1000)  # 그리는 데 걸린 만큼 빼서 초당 30프레임 근처 유지
-        self.anim_job = self.root.after(max(5, 33 - spent), self._anim_step) if (t < 1 or now < self.fx_until) else None
+        spent = int((time.perf_counter() - now) * 1000)
+        self.anim_job = self.root.after(max(5, 30 - spent), self._anim_step) if busy else None
 
-    def blink(self):
-        """가끔 젤리 하나가 눈을 깜빡"""
-        cands = [(p, s) for p in self.providers() for s in range(min(2, len(self.data[p]["windows"])))]
-        if cands and not self.anim_job:
-            self.blinking = random.choice(cands)
-            self.redraw()
-            self.root.after(140, self._unblink)
-        self.root.after(random.randint(2500, 6000), self.blink)
-
-    def track_pointer(self):
-        """마우스 커서가 있는 쪽을 젤리들이 바라봄 (방향이 바뀔 때만 다시 그림)"""
-        try:
-            px, py = self.root.winfo_pointerxy()
-            W, H = self.dims()
-            dx = px - (self.root.winfo_rootx() + W / 2)
-            dy = py - (self.root.winfo_rooty() + H / 2)
-            dist = math.hypot(dx, dy)
-            g = (0, 0) if dist < 24 * self.S else (
-                0 if abs(dx) < dist * 0.38 else (1 if dx > 0 else -1),
-                0 if abs(dy) < dist * 0.38 else (1 if dy > 0 else -1))
-        except tk.TclError:
-            g = (0, 0)
-        if g != self.gaze:
-            self.gaze = g
-            if not self.anim_job:
-                self.redraw()
-        self.root.after(150, self.track_pointer)
-
-    def _unblink(self):
-        self.blinking = None
-        if not self.anim_job:
-            self.redraw()
-
-    # ── 데이터 갱신
     def fetch_async(self, only=None):
         targets = [p for p in (only or self.providers()) if p not in self.fetching]
         if not targets:
@@ -1286,6 +1208,7 @@ class Widget:
 
             threading.Thread(target=worker, daemon=True).start()
         self.redraw()
+        self.start_anim()  # 값이 없는 서비스는 불러오는 동안 숫자가 돌아감
         if not self.spin_job:
             self._spin_step()
 
@@ -1311,8 +1234,10 @@ class Widget:
                 changed.append(p)
         except queue.Empty:
             pass
+        for p in dict.fromkeys(changed):
+            self.sync(p)
         if changed:
-            self.animate(changed)
+            self.redraw()
         self.root.after(300, self.poll_queue)
 
     def auto_refresh(self):
@@ -1320,6 +1245,7 @@ class Widget:
         self.root.after(REFRESH_SEC * 1000, self.auto_refresh)
 
     def tick(self):
+        self.sync()  # 시간이 흐르면 '속도'가 바뀔 수 있음
         if not self.anim_job:
             self.redraw()
         self.root.after(30_000, self.tick)
@@ -1346,10 +1272,11 @@ class Widget:
         if self._drag:
             self._drag = None
             px, py = self._press or (e.x_root, e.y_root)
-            if abs(e.x_root - px) + abs(e.y_root - py) < 4:  # 움직이지 않고 클릭 → 젤리 콕 찌르기
+            if abs(e.x_root - px) + abs(e.y_root - py) < 4:  # 움직이지 않고 클릭 → 숫자 한 번 섞기
                 p = self.provider_at(e.x, e.y)
                 if p:
-                    self.kick(1.0, wobble=[p])
+                    for slot in range(2):
+                        self.shuffle_flaps((p, slot, "v"))
                 return
             self.cfg["x"], self.cfg["y"] = self.root.winfo_x(), self.root.winfo_y()
             save_config(self.cfg)
