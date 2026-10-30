@@ -614,14 +614,16 @@ def render_tile(ch, w, h, color, kind="num", ss=3):
     d.rounded_rectangle([0, 0, W - 1, H - 1], r, fill=hex_rgb(TILE))
     d.rounded_rectangle([0, 0, W - 1, half], r, fill=hex_rgb(TILE_TOP))
     d.rectangle([0, half - r, W - 1, half], fill=hex_rgb(TILE_TOP))
+    # 접히는 줄과 양옆 경첩은 글자보다 먼저 그려요. 글자 위에 그리면 획이 끊겨서
+    # 작은 화면에서 '여유'가 '석유'처럼 읽혀요.
+    d.rectangle([0, half - 0.5 * ss, W, half + 0.5 * ss], fill=hex_rgb(SPLIT))
+    pin = max(1.0, w * 0.07) * ss
+    for x in (0.5 * ss, W - pin - 0.5 * ss):
+        d.rectangle([x, half - 1.4 * ss, x + pin, half + 1.4 * ss], fill=hex_rgb(SPLIT))
     if ch.strip():
         f = pil_font(kind, int(H * (0.8 if kind == "num" else 0.62)))
         x0, y0, x1, y1 = d.textbbox((0, 0), ch, font=f)
         d.text((W / 2 - (x0 + x1) / 2, half - (y0 + y1) / 2), ch, font=f, fill=hex_rgb(color))
-    d.rectangle([0, half - 0.6 * ss, W, half + 0.6 * ss], fill=hex_rgb(SPLIT))   # 접히는 줄
-    pin = max(1.0, w * 0.07) * ss
-    for x in (0.5 * ss, W - pin - 0.5 * ss):                                    # 양옆 경첩
-        d.rectangle([x, half - 1.4 * ss, x + pin, half + 1.4 * ss], fill=hex_rgb(SPLIT))
     img = img.resize((w, h), Image.LANCZOS)
     if len(_tile_cache) > 400:
         _tile_cache.clear()
