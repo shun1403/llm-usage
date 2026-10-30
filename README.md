@@ -82,7 +82,7 @@ Windows 기준입니다. 파이썬이 이미 설치되어 있다면 1분이면 �
 pip install pillow curl_cffi
 ```
 
-1. [`desktop/claude_usage_widget.pyw`](desktop/claude_usage_widget.pyw)를 내려받아 더블클릭합니다.
+1. [`desktop/llm_usage_widget.pyw`](desktop/llm_usage_widget.pyw)를 내려받아 더블클릭합니다.
 2. Claude 세션 키를 붙여넣습니다. → [Claude 등록하기](#claude-등록하기)
 3. ChatGPT는 Codex에 로그인되어 있으면 자동으로 연결됩니다. 아니면 쿠키 값을 붙여넣고, 쓰지 않으면 Cancel을 누릅니다. → [ChatGPT 등록하기](#chatgpt-등록하기)
 4. 컴퓨터를 켤 때마다 자동으로 띄우려면 [자동 실행](#3-컴퓨터를-켤-때-자동-실행)을 설정합니다.
@@ -93,7 +93,7 @@ pip install pillow curl_cffi
 
 > [!TIP]
 > **파일 받는 법** — Git을 몰라도 괜찮습니다.
-> - 파일 하나만: [`desktop/claude_usage_widget.pyw`](desktop/claude_usage_widget.pyw)를 열고 오른쪽 위 **⤓ (Download raw file)** 버튼을 누릅니다.
+> - 파일 하나만: [`desktop/llm_usage_widget.pyw`](desktop/llm_usage_widget.pyw)를 열고 오른쪽 위 **⤓ (Download raw file)** 버튼을 누릅니다.
 > - 전체: 이 페이지 위쪽의 초록색 **Code** 버튼 → **Download ZIP**을 누른 뒤 압축을 풉니다.
 
 ### 1. 파이썬과 패키지 설치
@@ -116,17 +116,17 @@ pip install pillow curl_cffi
 
 ### 2. 실행
 
-**Windows** — `claude_usage_widget.pyw`를 더블클릭하면 cmd 창 없이 위젯만 나타납니다.
+**Windows** — `llm_usage_widget.pyw`를 더블클릭하면 cmd 창 없이 위젯만 나타납니다.
 
 ```bat
 :: cmd에서 실행하는 경우 ("pythonw"를 찾지 못하면 pyw로 바꿔 입력합니다)
-pythonw claude_usage_widget.pyw
+pythonw llm_usage_widget.pyw
 ```
 
 **Mac** — 터미널에서 파일이 있는 폴더로 이동한 뒤 실행합니다.
 
 ```bash
-nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
+nohup python3 llm_usage_widget.pyw >/dev/null 2>&1 &
 ```
 
 이후 터미널을 닫아도 위젯은 계속 떠 있습니다.
@@ -135,6 +135,8 @@ nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
 
 > [!TIP]
 > **업데이트**할 때는 새 `.pyw` 파일로 덮어쓰기만 하면 됩니다. 창 위치·세션 키 같은 설정은 홈 폴더의 설정 파일에 따로 저장되므로 그대로 유지됩니다.
+>
+> 예전 이름인 `claude_usage_widget.pyw` 를 쓰고 있었다면 새 파일 `llm_usage_widget.pyw` 를 받은 뒤 **옛 파일은 지우고**, [자동 실행](#3-컴퓨터를-켤-때-자동-실행) 바로가기도 새 파일로 다시 만드십시오. 설정 파일 이름(`.claude_usage_widget.json`)은 그대로라 세션 키와 창 위치는 이어집니다.
 
 ### 3. 컴퓨터를 켤 때 자동 실행
 
@@ -142,7 +144,7 @@ nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
 <summary><b>Windows</b></summary>
 
 1. `Win + R` → `shell:startup` 입력 → 확인을 누릅니다.
-2. 열린 폴더에 `claude_usage_widget.pyw`의 **바로가기**를 넣습니다.
+2. 열린 폴더에 `llm_usage_widget.pyw`의 **바로가기**를 넣습니다.
 
 </details>
 
@@ -153,7 +155,7 @@ nohup python3 claude_usage_widget.pyw >/dev/null 2>&1 &
 2. **Automator**를 실행한 뒤 새로운 문서 → **응용 프로그램**을 선택합니다.
 3. **셸 스크립트 실행**을 끌어다 놓고 아래처럼 입력합니다.
    ```bash
-   /나온/경로/python3 /위젯/파일/경로/claude_usage_widget.pyw
+   /나온/경로/python3 /위젯/파일/경로/llm_usage_widget.pyw
    ```
 4. 응용 프로그램으로 저장합니다.
 5. 시스템 설정 → 일반 → **로그인 항목**에 방금 만든 앱을 추가합니다.
@@ -443,7 +445,7 @@ Claude와 ChatGPT 중 하나만 등록해도 됩니다.
 `pythonw`는 오류를 보여 주지 않습니다. cmd에서 아래처럼 실행해 오류 메시지를 확인하십시오.
 
 ```bat
-python claude_usage_widget.pyw
+python llm_usage_widget.pyw
 ```
 
 가장 흔한 원인은 `pip install pillow`를 하지 않은 경우입니다.
@@ -525,7 +527,7 @@ pip install curl_cffi
 
 - **저장되는 항목**: Claude 세션 키, ChatGPT 세션 토큰, 창 위치, 미니 모드 여부, 항상 위 여부, 투명도, 마우스를 올리면 선명하게 여부, 서비스별 표시 여부
 - Codex 로그인 정보(`~/.codex/auth.json`)는 읽기만 하며 절대 수정하지 않습니다.
-- **새로고침 간격**을 바꾸려면 `claude_usage_widget.pyw` 위쪽의 `REFRESH_SEC = 120` 숫자(초)를 수정합니다. 너무 짧으면 차단될 수 있으므로 **60 이상**을 권장합니다.
+- **새로고침 간격**을 바꾸려면 `llm_usage_widget.pyw` 위쪽의 `REFRESH_SEC = 120` 숫자(초)를 수정합니다. 너무 짧으면 차단될 수 있으므로 **60 이상**을 권장합니다.
 
 > [!CAUTION]
 > 설정 파일에는 세션 키·토큰이 그대로 들어 있습니다. 다른 사람에게 보내거나 GitHub 등에 올리지 마십시오.
@@ -543,7 +545,7 @@ pip install curl_cffi
 ```
 llm-usage/
 ├── desktop/
-│   └── claude_usage_widget.pyw     # Windows / Mac 데스크톱 위젯 (Claude + ChatGPT)
+│   └── llm_usage_widget.pyw     # Windows / Mac 데스크톱 위젯 (Claude + ChatGPT)
 ├── ios/
 │   └── claude_usage_scriptable.js  # 아이폰 Scriptable 위젯 (Claude)
 ├── docs/

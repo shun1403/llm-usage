@@ -595,6 +595,7 @@ class Widget:
     MINI_BIG = (15, 23)    # 짧은 주기
     MINI_SMALL = (12, 18)  # 주간
     MINI_GAP = 18          # 서비스 사이 간격
+    MINI_PAIR_GAP = 11     # 큰 카드와 작은 카드 사이 (빨간 램프 자리)
 
     OPACITY_STEPS = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3)
 
@@ -1006,7 +1007,7 @@ class Widget:
     # ── 크기 계산
     def mini_group_w(self, p):
         S = self.S
-        return (self.flap_width((p, 0, "v"), self.MINI_BIG) + 7 * S
+        return (self.flap_width((p, 0, "v"), self.MINI_BIG) + self.MINI_PAIR_GAP * S
                 + self.flap_width((p, 1, "v"), self.MINI_SMALL, 1.2))
 
     def dims(self):
@@ -1137,7 +1138,7 @@ class Widget:
         base = 44 * S   # 카드 아래쪽 맞춤
         bx = x
         xr = self.draw_flaps((p, 0, "v"), bx, base - self.MINI_BIG[1] * S / 2, self.MINI_BIG, now=now)
-        sx = xr + 7 * S
+        sx = xr + self.MINI_PAIR_GAP * S
         xr2 = sx
         if len(wins) > 1 or not wins:
             xr2 = self.draw_flaps((p, 1, "v"), sx, base - self.MINI_SMALL[1] * S / 2, self.MINI_SMALL, gap=1.2,
@@ -1147,14 +1148,14 @@ class Widget:
             labels.append((wins[1]["short"], sx))
         for text, lx in labels:
             cv.create_text(lx, 54 * S, text=text, anchor="w", fill=DIM, font=self.font(7))
-        # 시간보다 빨리 쓰고 있으면 카드 오른쪽 위에 작은 빨간 램프
+        # 시간보다 빨리 쓰고 있으면 카드 오른쪽 옆(윗부분 높이)에 작은 빨간 램프
         for slot, (left, right, top) in enumerate(((bx, xr, base - self.MINI_BIG[1] * S),
                                                   (sx, xr2, base - self.MINI_SMALL[1] * S))):
             if slot < len(wins):
                 pc = pace(wins[slot]["pct"], time_progress(wins[slot]))
                 if pc and pc[0] == "빠름":
                     r = int(4 * S)
-                    cv.create_image(right + 2 * S, top - 1 * S, anchor="sw", image=self.shape_photo("dot", r, r, BAD))
+                    cv.create_image(right + 3.5 * S, top + 3 * S, anchor="w", image=self.shape_photo("dot", r, r, BAD))
 
     # ── 새로고침 버튼
     def draw_button(self):
