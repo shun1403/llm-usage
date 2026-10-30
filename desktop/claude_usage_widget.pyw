@@ -583,6 +583,7 @@ class Widget:
     WIDTH = 300
     HEAD_H = 24      # 맨 위 열 제목 줄
     BLOCK_H = 90     # 서비스 한 칸 높이
+    PENDING_H = 30   # 등록하지 않은 서비스는 한 줄만 ('등록 대기')
     FOOT_H = 24
     TILE = (14, 21)  # 사용률 카드
     STAT = (13, 18)  # 속도 카드 (여유/적정/빠름)
@@ -649,6 +650,7 @@ class Widget:
         self._photo_cache = {}
         self._shape_cache = {}
         self._font_cache = {}
+        self.update_registration()
 
         self.build()
         self.root.deiconify()
@@ -664,6 +666,23 @@ class Widget:
     def providers(self):
         ps = [p for p in PROVIDERS if self.cfg.get(f"show_{p}", True)]
         return ps or ["claude"]
+
+    def update_registration(self):
+        """세션 키·토큰(또는 Codex 로그인)이 있는 서비스 = 등록된 서비스"""
+        self._reg = {"claude": bool(self.cfg.get("session_key")), "gpt": bool(gpt_sources(self.cfg))}
+
+    def registered(self, p):
+        return self._reg.get(p, True)
+
+    def visible(self):
+        """지금 모드에서 그릴 서비스. 미니 모드에는 등록한 서비스만 (하나도 없으면 전부)"""
+        ps = self.providers()
+        if self.compact:
+            return [p for p in ps if self.registered(p)] or ps
+        return ps
+
+    def block_h(self, p):
+        return self.BLOCK_H if self.registered(p) else self.PENDING_H
 
     # ── 창 구성
     def build(self):
@@ -815,8 +834,9 @@ class Widget:
 
     # ── 이미지
     def panel_photo(self, w, h):
-        n = len(self.providers())
-        key = (w, h, self.alpha_mode, self.compact, n)
+        ps = self.visible()
+        n = len(ps)
+        key = (w, h, self.alpha_mode, self.compact, tuple((q, self.registered(q)) for q in ps))
         if key not in self._panel_cache:
             S, ss = self.S, 3
             img = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0) if self.alpha_mode else hex_rgb(BG) + (255,))
@@ -945,6 +965,9 @@ class Widget:
     def sync(self, p=None):
         """데이터(또는 시간 흐름)에 맞게 카드 목표를 다시 정함"""
         for p in ([p] if p else PROVIDERS):
+            if not self.registered(p):
+                self.set_flaps((p, 0, "pending"), "등록대기", MUTED, cycle=False)
+                continue
             d = self.data[p]
             wins = d["windows"][:2]
             for slot in range(2):
@@ -964,9 +987,9 @@ class Widget:
     def loading_shuffle(self):
         """불러오는 동안 값이 없는 서비스의 숫자 카드가 계속 돌아감"""
         busy = False
-        for p in self.providers():
+        for p in self.visible():
             d = self.data[p]
-            if p not in self.fetching or d["windows"] or d["error"]:
+            if p not in self.fetching or d["windows"] or d["error"] or not self.registered(p):
                 continue
             for slot in range(2):
                 tiles = self.flap_group((p, slot, "v"))
@@ -987,17 +1010,17 @@ class Widget:
                 + self.flap_width((p, 1, "v"), self.MINI_SMALL, 1.2))
 
     def dims(self):
-        S, ps = self.S, self.providers()
+        S, ps = self.S, self.visible()
         if self.compact:
             w = self.MINI_PAD * 2 * S + sum(self.mini_group_w(p) for p in ps) + self.MINI_GAP * S * (len(ps) - 1)
             return int(w + 10 * S), int(self.MINI_H * S)
-        return int(self.WIDTH * S), int((self.HEAD_H + len(ps) * self.BLOCK_H + self.FOOT_H) * S)
+        return int(self.WIDTH * S), int((self.HEAD_H + sum(self.block_h(p) for p in ps) + self.FOOT_H) * S)
 
     def block_y(self, i):
-        return int((self.HEAD_H + i * self.BLOCK_H) * self.S)
+        return int((self.HEAD_H + sum(self.block_h(p) for p in self.visible()[:i])) * self.S)
 
     def mini_x(self, i):
-        S, ps = self.S, self.providers()
+        S, ps = self.S, self.visible()
         return int(self.MINI_PAD * S + sum(self.mini_group_w(p) + self.MINI_GAP * S for p in ps[:i]))
 
     def button_pos(self):
@@ -1008,12 +1031,12 @@ class Widget:
         return W - 18 * S, H - self.FOOT_H * S / 2 - 1 * S, 9 * S
 
     def provider_at(self, x, y):
-        ps = self.providers()
+        ps = self.visible()
         for i, p in enumerate(ps):
             if self.compact:
                 if self.mini_x(i) <= x < self.mini_x(i) + self.mini_group_w(p) + self.MINI_GAP * self.S:
                     return p
-            elif self.block_y(i) <= y < self.block_y(i) + self.BLOCK_H * self.S:
+            elif self.block_y(i) <= y < self.block_y(i) + self.block_h(p) * self.S:
                 return p
         return None
 
@@ -1031,15 +1054,18 @@ class Widget:
 
         now = time.perf_counter()
         if self.compact:
-            for i, p in enumerate(self.providers()):
+            for i, p in enumerate(self.visible()):
                 self.draw_mini(p, self.mini_x(i), now)
         else:
             hy = self.HEAD_H * S / 2 + 2 * S   # 열 제목 (안내판 머리줄)
             for text, x, anchor in (("한도", 14 * S, "w"), ("사용률", self.COL_VAL * S, "w"),
                                     ("속도", self.COL_STAT * S, "w"), ("초기화", W - 14 * S, "e")):
                 cv.create_text(x, hy, text=text, anchor=anchor, fill=DIM, font=self.font(7))
-            for i, p in enumerate(self.providers()):
-                self.draw_block(p, self.block_y(i), W, now)
+            for i, p in enumerate(self.visible()):
+                if self.registered(p):
+                    self.draw_block(p, self.block_y(i), W, now)
+                else:
+                    self.draw_pending(p, self.block_y(i), W, now)
             if self.last_ok:
                 bx, by, br = self.button_pos()
                 cv.create_text(bx - br - 6 * S, by, text=f"{self.last_ok:%H:%M} 업데이트",
@@ -1094,6 +1120,14 @@ class Widget:
         elif d["extras"]:
             cv.create_text(x0, y0 + 80 * S, text="  ·  ".join(f"{n} {v:.0f}%" for n, v in d["extras"]),
                            anchor="w", fill=DIM, font=self.font(7))
+
+    def draw_pending(self, p, y0, W, now):
+        """등록하지 않은 서비스: 이름 + '등록 대기' 카드 + 안내를 한 줄로"""
+        S, cv = self.S, self.canvas
+        cy = y0 + self.PENDING_H * S / 2
+        self.draw_name(p, 14 * S, cy)
+        self.draw_flaps((p, 0, "pending"), self.COL_VAL * S, cy, self.STAT, kind="kor", gap=1.2, now=now)
+        cv.create_text(W - 14 * S, cy, text="우클릭 → 연결 설정", anchor="e", fill=DIM, font=self.font(7))
 
     def draw_mini(self, p, x, now):
         S, cv = self.S, self.canvas
@@ -1189,8 +1223,11 @@ class Widget:
         self.anim_job = self.root.after(max(5, 30 - spent), self._anim_step) if busy else None
 
     def fetch_async(self, only=None):
-        targets = [p for p in (only or self.providers()) if p not in self.fetching]
+        self.update_registration()  # Codex에 새로 로그인했거나 키를 지웠으면 여기서 반영
+        targets = [p for p in (only or self.providers()) if p not in self.fetching and self.registered(p)]
         if not targets:
+            self.sync()
+            self.redraw()
             return
         for p in targets:
             self.fetching.add(p)
@@ -1207,6 +1244,7 @@ class Widget:
                     self.q.put(("err", p, f"오류: {e}"))
 
             threading.Thread(target=worker, daemon=True).start()
+        self.sync()
         self.redraw()
         self.start_anim()  # 값이 없는 서비스는 불러오는 동안 숫자가 돌아감
         if not self.spin_job:
@@ -1324,6 +1362,7 @@ class Widget:
             self.root.attributes("-topmost", self.cfg.get("topmost", True))
             self._hold_top = False
             self.raise_top()
+            self.update_registration()
 
     def ask_claude_key(self):
         msg = ("claude.ai에 로그인한 브라우저에서 개발자 도구 > 쿠키 > sessionKey 값을\n"
