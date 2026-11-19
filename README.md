@@ -507,6 +507,22 @@ pip install curl_cffi
 </details>
 
 <details>
+<summary><b>"인증서 파일을 읽지 못했어요 (curl 77)" / "error adding trust anchors"라고 나옵니다</b></summary>
+
+Windows 사용자 이름(사용자 폴더 이름)이 한글처럼 영어가 아닌 글자일 때 생깁니다. 인증서 파일 경로에 한글이 들어가면 `curl_cffi`가 그 파일을 열지 못합니다. 특히 Python 3.15 이상에서 잘 생깁니다.
+
+1. 위젯을 최신 `llm_usage_widget.pyw`로 바꿉니다. 위젯이 인증서 파일을 영문 경로(`C:\ProgramData\llm-usage\cacert.pem`)로 복사해 쓰므로 따로 할 일이 없습니다.
+2. 그래도 같은 오류가 나오면 cmd에서 아래를 실행합니다. 인증서 파일을 직접 영문 폴더에 복사해 두는 방법입니다. 실행이 끝나면 위젯을 종료하고 다시 켭니다.
+
+   ```bat
+   mkdir C:\certs
+   python -c "import certifi, shutil; shutil.copy(certifi.where(), r'C:\certs\cacert.pem')"
+   setx SSL_CERT_FILE C:\certs\cacert.pem
+   ```
+
+</details>
+
+<details>
 <summary><b>위젯이 다른 창 뒤로 숨습니다</b></summary>
 
 우클릭 메뉴에서 **항상 위에 표시**가 켜져 있는지 확인합니다. 켜져 있으면 위젯이 2초마다 스스로 맨 앞으로 다시 올라옵니다.

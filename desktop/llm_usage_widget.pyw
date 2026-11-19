@@ -202,14 +202,59 @@ def already_running():
 
 
 # ─── 네트워크 공통 ─────────────────────────────────────
+_ca_lock = threading.Lock()
+_ca_path = False   # False = 아직 정하지 않음
+
+
+def ca_bundle():
+    """curl_cffi에 넘길 인증서 파일 경로. 대부분은 None(기본값 그대로)이에요.
+
+    Windows 사용자 이름이 한글이면 인증서 파일 경로에도 한글이 들어가는데, curl은 이런 경로를
+    열지 못해 'curl: (77) error adding trust anchors'로 실패해요. (Python 3.15부터는 UTF-8 모드가
+    기본이라 curl_cffi의 자체 보정도 듣지 않아요.) 그럴 때는 영문 경로로 복사해 써요.
+    """
+    global _ca_path
+    with _ca_lock:
+        if _ca_path is not False:
+            return _ca_path
+        _ca_path = None
+        if not IS_WIN:
+            return None
+        try:
+            from curl_cffi import curl as _cc
+            import certifi
+            src = Path(getattr(_cc, "DEFAULT_CACERT", None) or certifi.where())
+            if str(src).isascii():
+                return None
+            data = src.read_bytes()
+        except Exception:
+            return None
+        for base in (os.environ.get("ProgramData"), os.environ.get("PUBLIC")):
+            dst = Path(base or "") / "llm-usage" / "cacert.pem"
+            if not base or not str(dst).isascii():
+                continue
+            try:
+                if not dst.exists() or dst.read_bytes() != data:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(data)
+                _ca_path = str(dst)
+                break
+            except OSError:
+                continue
+        return _ca_path
+
+
 def http_get_json(url, headers=None, cookies=None):
     hdrs = {"Accept": "application/json", "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"}
     hdrs.update(headers or {})
     cookies = cookies or {}
     if cffi_requests:
         try:
-            r = cffi_requests.get(url, headers=hdrs, cookies=cookies, impersonate="chrome", timeout=20)
+            r = cffi_requests.get(url, headers=hdrs, cookies=cookies, impersonate="chrome", timeout=20,
+                                  verify=ca_bundle() or True)
         except Exception as e:
+            if "(77)" in str(e):
+                raise NetworkError("인증서 파일을 읽지 못했어요 (curl 77) · README '문제 해결' 참고")
             raise NetworkError(f"네트워크 오류: {e}")
         status, text = r.status_code, r.text
     else:
