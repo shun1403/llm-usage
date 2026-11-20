@@ -967,7 +967,7 @@ class Widget:
         self.redraw()
 
     def setup_native_window(self):
-        """Windows: 창 핸들을 기억해 두고 Win11 둥근 모서리 적용"""
+        """Windows: 창 핸들을 기억해 두고 Win11 둥근 모서리 적용, 작업 표시줄에서 빼기"""
         if not IS_WIN:
             return
         try:
@@ -979,6 +979,28 @@ class Widget:
             rr, gg, bb = hex_rgb(BORDER)
             color = ctypes.c_uint(rr | (gg << 8) | (bb << 16))
             ctypes.windll.dwmapi.DwmSetWindowAttribute(self._hwnd, 34, ctypes.byref(color), ctypes.sizeof(color))
+        except Exception:
+            pass
+        self.hide_from_taskbar()
+
+    def hide_from_taskbar(self):
+        """Windows: 작업 표시줄·Alt+Tab에 파이썬 아이콘이 생기지 않게 '도구 창'으로 바꿈.
+        Tk가 투명도 등을 바꾸다 스타일을 되돌릴 수 있어서 맨 앞 고정 때마다 다시 확인해요."""
+        if not (IS_WIN and self._hwnd):
+            return
+        try:
+            import ctypes
+            u = ctypes.windll.user32
+            u.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            u.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+            u.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_APPWINDOW = -20, 0x00000080, 0x00040000
+            ex = u.GetWindowLongW(self._hwnd, GWL_EXSTYLE)
+            want = (ex | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
+            if want != ex:
+                u.SetWindowLongW(self._hwnd, GWL_EXSTYLE, want)
+                u.ShowWindow(self._hwnd, 0)   # SW_HIDE — 한 번 숨겼다 보여 줘야 작업 표시줄에 반영돼요
+                u.ShowWindow(self._hwnd, 4)   # SW_SHOWNOACTIVATE
         except Exception:
             pass
 
@@ -1010,6 +1032,7 @@ class Widget:
             self.bring_back()
         elif not self._hold_top:
             self.raise_top()
+        self.hide_from_taskbar()
         self.root.after(2000, self.keep_on_top)
 
     def bring_back(self):
