@@ -129,12 +129,44 @@ def autostart_supported():
     return (IS_WIN or IS_MAC) and bool(sys.executable)
 
 
+def windowless_python():
+    """Windows에서 지금 파이썬이 검은 창이 뜨는 python(...).exe면 짝이 되는 pythonw(...).exe, 아니면 None"""
+    exe = Path(sys.executable)
+    name = exe.name.lower()
+    if not IS_WIN or not name.startswith("python") or name.startswith("pythonw"):
+        return None
+    for cand in ("pythonw" + exe.name[len("python"):], "pythonw.exe"):   # python3.15.exe → pythonw3.15.exe
+        if exe.with_name(cand).exists():
+            return exe.with_name(cand)
+    return None
+
+
 def launch_command():
     """지금 실행 중인 파이썬 + 이 파일. Windows는 cmd 창이 뜨지 않게 pythonw로"""
-    exe = Path(sys.executable)
-    if IS_WIN and exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").exists():
-        exe = exe.with_name("pythonw.exe")
+    exe = windowless_python() or Path(sys.executable)
     return [str(exe), str(Path(__file__).resolve())]
+
+
+def detach_from_console():
+    """Windows에서 검은 창(콘솔)과 함께 켜졌으면 pythonw로 다시 켜고 True.
+    .pyw가 python.exe로 열리게 설정돼 있거나 cmd에서 실행해도, 검은 창을 닫을 때 위젯이 같이 꺼지지 않게.
+    검은 창에 출력을 보고 싶으면 --console 을 붙여 실행"""
+    if "--console" in sys.argv:
+        return False
+    pyw = windowless_python()
+    if not pyw:
+        return False
+    try:
+        import ctypes
+        import subprocess
+        if not ctypes.windll.kernel32.GetConsoleWindow():
+            return False
+        subprocess.Popen([str(pyw), str(Path(__file__).resolve()), *sys.argv[1:]],
+                         creationflags=0x00000008 | 0x00000200,   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                         close_fds=True)
+        return True
+    except Exception:
+        return False
 
 
 def mac_agent_path():
@@ -1677,6 +1709,8 @@ def report_crash():
 
 
 def main():
+    if detach_from_console():
+        return
     if IS_WIN:
         try:
             import ctypes
