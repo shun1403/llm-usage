@@ -129,12 +129,44 @@ def autostart_supported():
     return (IS_WIN or IS_MAC) and bool(sys.executable)
 
 
+def windowless_python():
+    """Windows에서 지금 파이썬이 검은 창이 뜨는 python(...).exe면 짝이 되는 pythonw(...).exe, 아니면 None"""
+    exe = Path(sys.executable)
+    name = exe.name.lower()
+    if not IS_WIN or not name.startswith("python") or name.startswith("pythonw"):
+        return None
+    for cand in ("pythonw" + exe.name[len("python"):], "pythonw.exe"):   # python3.15.exe → pythonw3.15.exe
+        if exe.with_name(cand).exists():
+            return exe.with_name(cand)
+    return None
+
+
 def launch_command():
     """지금 실행 중인 파이썬 + 이 파일. Windows는 cmd 창이 뜨지 않게 pythonw로"""
-    exe = Path(sys.executable)
-    if IS_WIN and exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").exists():
-        exe = exe.with_name("pythonw.exe")
+    exe = windowless_python() or Path(sys.executable)
     return [str(exe), str(Path(__file__).resolve())]
+
+
+def detach_from_console():
+    """Windows에서 검은 창(콘솔)과 함께 켜졌으면 pythonw로 다시 켜고 True.
+    .pyw가 python.exe로 열리게 설정돼 있거나 cmd에서 실행해도, 검은 창을 닫을 때 위젯이 같이 꺼지지 않게.
+    검은 창에 출력을 보고 싶으면 --console 을 붙여 실행"""
+    if "--console" in sys.argv:
+        return False
+    pyw = windowless_python()
+    if not pyw:
+        return False
+    try:
+        import ctypes
+        import subprocess
+        if not ctypes.windll.kernel32.GetConsoleWindow():
+            return False
+        subprocess.Popen([str(pyw), str(Path(__file__).resolve()), *sys.argv[1:]],
+                         creationflags=0x00000008 | 0x00000200,   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                         close_fds=True)
+        return True
+    except Exception:
+        return False
 
 
 def mac_agent_path():
@@ -189,7 +221,8 @@ def already_running():
             import ctypes
             k32 = ctypes.WinDLL("kernel32", use_last_error=True)
             k32.CreateMutexW.restype = ctypes.c_void_p
-            _instance_lock = k32.CreateMutexW(None, False, "Local\\LLMUsageWidget")
+            # 이름 끝 .v2: '다시 실행하면 앞으로 불러오기'를 모르는 예전 버전이 떠 있어도 새 버전을 막지 않게
+            _instance_lock = k32.CreateMutexW(None, False, "Local\\LLMUsageWidget.v2")
             return ctypes.get_last_error() == 183   # ERROR_ALREADY_EXISTS
         import fcntl
         _instance_lock = open(Path.home() / ".llm_usage_widget.lock", "w")
@@ -199,6 +232,42 @@ def already_running():
         return True
     except Exception:
         return False
+
+
+SHOW_REQUEST = Path.home() / ".llm_usage_widget.show"
+
+
+def ask_running_widget_to_show(timeout=5.0):
+    """이미 떠 있는 위젯에 '화면에 나와 줘'라고 부탁. 그 위젯이 받아 가면 True"""
+    try:
+        SHOW_REQUEST.write_text("show", encoding="utf-8")
+    except OSError:
+        return False
+    end = time.time() + timeout
+    while time.time() < end:
+        if not SHOW_REQUEST.exists():
+            return True
+        time.sleep(0.2)
+    try:
+        SHOW_REQUEST.unlink()   # 받아 가지 않았으면 (응답 없음 / 예전 버전) 치워 둠
+    except OSError:
+        pass
+    return False
+
+
+def on_screen(x, y):
+    """창 왼쪽 위 근처가 어느 모니터 안에 있는지"""
+    if IS_WIN:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u = ctypes.windll.user32
+            u.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+            u.MonitorFromPoint.restype = ctypes.c_void_p
+            return bool(u.MonitorFromPoint(wintypes.POINT(int(x) + 20, int(y) + 10), 0))  # 0 = 없으면 NULL
+        except Exception:
+            return True
+    return None   # 다른 OS는 Tk 화면 크기로 판단
 
 
 # ─── 네트워크 공통 ─────────────────────────────────────
@@ -843,7 +912,13 @@ class Widget:
         self.canvas = tk.Canvas(r, bg="systemTransparent" if self.alpha_mode else BG,
                                 highlightthickness=0, bd=0)
         self.canvas.pack()
-        r.geometry(f"+{self.cfg.get('x', 40)}+{self.cfg.get('y', 40)}")
+        try:
+            x, y = int(self.cfg.get("x", 40)), int(self.cfg.get("y", 40))
+        except (TypeError, ValueError):
+            x, y = 40, 40
+        if on_screen(x, y) is False:   # 모니터를 빼는 등으로 저장된 자리가 화면 밖이면
+            x, y = 40, 40
+        r.geometry(f"+{x}+{y}")
 
         cv = self.canvas
         cv.bind("<ButtonPress-1>", self.drag_start)
@@ -927,9 +1002,33 @@ class Widget:
 
     def keep_on_top(self):
         """다른 창(작업 표시줄, 다른 '항상 위' 창 등)에 밀려 뒤로 가지 않도록 주기적으로 다시 맨 앞으로"""
-        if not self._hold_top:
+        if SHOW_REQUEST.exists():   # 위젯 파일을 다시 실행함
+            try:
+                SHOW_REQUEST.unlink()
+            except OSError:
+                pass
+            self.bring_back()
+        elif not self._hold_top:
             self.raise_top()
         self.root.after(2000, self.keep_on_top)
+
+    def bring_back(self):
+        """최소화됐거나 화면 밖에 있어도 보이는 자리로 불러오고, 숫자를 한 번 섞어 여기 있다고 알려 줌"""
+        r = self.root
+        r.deiconify()
+        x, y = r.winfo_x(), r.winfo_y()
+        visible = on_screen(x, y)
+        if visible is None:
+            visible = 0 <= x + 20 < r.winfo_screenwidth() and 0 <= y + 10 < r.winfo_screenheight()
+        if not visible:
+            r.geometry("+40+40")
+            self.cfg["x"], self.cfg["y"] = 40, 40
+            save_config(self.cfg)
+        r.lift()
+        self.raise_top()
+        for p in self.visible():
+            for slot in range(2):
+                self.shuffle_flaps((p, slot, "v"))
 
     # ── 투명도
     def opacity(self):
@@ -1586,7 +1685,32 @@ class Widget:
         self.root.mainloop()
 
 
-if __name__ == "__main__":
+ERROR_LOG = Path.home() / "llm_usage_widget_error.log"
+
+
+def report_crash():
+    """pythonw는 오류를 보여 주지 않으니, 켜다가 실패하면 이유를 창으로 띄우고 파일로도 남김"""
+    import traceback
+    text = traceback.format_exc()
+    if sys.stderr:
+        print(text, file=sys.stderr)
+    try:
+        ERROR_LOG.write_text(f"{datetime.now():%Y-%m-%d %H:%M:%S}  Python {sys.version}\n{text}", encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        r = tk.Tk()
+        r.withdraw()
+        last = text.strip().splitlines()[-1]
+        messagebox.showerror("AI 사용량", f"위젯을 켜다가 오류가 났어요.\n\n{last}\n\n자세한 내용: {ERROR_LOG}")
+        r.destroy()
+    except Exception:
+        pass
+
+
+def main():
+    if detach_from_console():
+        return
     if IS_WIN:
         try:
             import ctypes
@@ -1594,5 +1718,25 @@ if __name__ == "__main__":
         except Exception:
             pass
     if already_running():
-        sys.exit(0)
-    Widget().run()
+        # 이미 떠 있으면 그 위젯을 앞으로 불러오고 끝.
+        # 응답이 없으면 (멈췄거나 예전 버전) 알려 주고, 원하면 그래도 새로 띄움 — 잠금 때문에 영영 못 켜는 일이 없게
+        if ask_running_widget_to_show():
+            return
+        r = tk.Tk()
+        r.withdraw()
+        where = ("작업 관리자(Ctrl+Shift+Esc) → 세부 정보에서 pythonw.exe를" if IS_WIN
+                 else "활성 상태 보기에서 Python을")
+        go = messagebox.askyesno("AI 사용량", "위젯이 이미 실행 중인데 응답이 없어요.\n"
+                                 f"{where} 종료하면 깨끗하게 다시 켤 수 있어요.\n\n"
+                                 "그래도 지금 새로 띄울까요?")
+        r.destroy()
+        if not go:
+            return
+    try:
+        Widget().run()
+    except Exception:
+        report_crash()
+
+
+if __name__ == "__main__":
+    main()
