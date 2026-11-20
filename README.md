@@ -461,6 +461,13 @@ python llm_usage_widget.pyw --console
 </details>
 
 <details>
+<summary><b>작업 표시줄에 파이썬 아이콘이 생깁니다</b></summary>
+
+최신 버전은 위젯을 작업 표시줄과 `Alt + Tab` 목록에 나타나지 않는 '도구 창'으로 띄웁니다. 아이콘이 보인다면 위젯 파일을 최신 버전으로 바꾸십시오. 위젯을 끌 때는 우클릭 → **종료**를 선택합니다.
+
+</details>
+
+<details>
 <summary><b>위젯과 함께 검은 창(cmd)이 뜨고, 그 창을 닫으면 위젯도 꺼집니다</b></summary>
 
 `.pyw` 파일이 창 없는 `pythonw.exe` 대신 `python.exe` 로 열리게 설정된 경우입니다. 최신 버전은 이럴 때 스스로 `pythonw.exe` 로 다시 켜지므로, 검은 창이 잠깐 떴다 사라지고 위젯만 남습니다. cmd에서 직접 실행했을 때도 마찬가지로 cmd를 닫아도 위젯은 계속 떠 있습니다.
