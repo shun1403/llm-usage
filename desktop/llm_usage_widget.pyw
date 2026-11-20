@@ -189,7 +189,8 @@ def already_running():
             import ctypes
             k32 = ctypes.WinDLL("kernel32", use_last_error=True)
             k32.CreateMutexW.restype = ctypes.c_void_p
-            _instance_lock = k32.CreateMutexW(None, False, "Local\\LLMUsageWidget")
+            # 이름 끝 .v2: '다시 실행하면 앞으로 불러오기'를 모르는 예전 버전이 떠 있어도 새 버전을 막지 않게
+            _instance_lock = k32.CreateMutexW(None, False, "Local\\LLMUsageWidget.v2")
             return ctypes.get_last_error() == 183   # ERROR_ALREADY_EXISTS
         import fcntl
         _instance_lock = open(Path.home() / ".llm_usage_widget.lock", "w")
