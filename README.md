@@ -442,7 +442,9 @@ Claude와 ChatGPT 중 하나만 등록해도 됩니다.
 <details>
 <summary><b>위젯이 아예 뜨지 않습니다</b></summary>
 
-`pythonw`는 오류를 보여 주지 않습니다. cmd에서 아래처럼 실행해 오류 메시지를 확인하십시오.
+켜다가 오류가 나면 "위젯을 켜다가 오류가 났어요" 창에 이유가 표시되고, 자세한 내용이 홈 폴더의 `llm_usage_widget_error.log` 에 저장됩니다. 문제를 알려 주실 때 이 파일을 함께 보내 주십시오.
+
+창이 뜨지 않는 예전 버전이라면 cmd에서 아래처럼 실행해 오류 메시지를 확인하십시오.
 
 ```bat
 python llm_usage_widget.pyw

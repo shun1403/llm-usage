@@ -879,7 +879,10 @@ class Widget:
         self.canvas = tk.Canvas(r, bg="systemTransparent" if self.alpha_mode else BG,
                                 highlightthickness=0, bd=0)
         self.canvas.pack()
-        x, y = self.cfg.get("x", 40), self.cfg.get("y", 40)
+        try:
+            x, y = int(self.cfg.get("x", 40)), int(self.cfg.get("y", 40))
+        except (TypeError, ValueError):
+            x, y = 40, 40
         if on_screen(x, y) is False:   # 모니터를 빼는 등으로 저장된 자리가 화면 밖이면
             x, y = 40, 40
         r.geometry(f"+{x}+{y}")
@@ -1649,6 +1652,29 @@ class Widget:
         self.root.mainloop()
 
 
+ERROR_LOG = Path.home() / "llm_usage_widget_error.log"
+
+
+def report_crash():
+    """pythonw는 오류를 보여 주지 않으니, 켜다가 실패하면 이유를 창으로 띄우고 파일로도 남김"""
+    import traceback
+    text = traceback.format_exc()
+    if sys.stderr:
+        print(text, file=sys.stderr)
+    try:
+        ERROR_LOG.write_text(f"{datetime.now():%Y-%m-%d %H:%M:%S}  Python {sys.version}\n{text}", encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        r = tk.Tk()
+        r.withdraw()
+        last = text.strip().splitlines()[-1]
+        messagebox.showerror("AI 사용량", f"위젯을 켜다가 오류가 났어요.\n\n{last}\n\n자세한 내용: {ERROR_LOG}")
+        r.destroy()
+    except Exception:
+        pass
+
+
 def main():
     if IS_WIN:
         try:
@@ -1671,7 +1697,10 @@ def main():
         r.destroy()
         if not go:
             return
-    Widget().run()
+    try:
+        Widget().run()
+    except Exception:
+        report_crash()
 
 
 if __name__ == "__main__":
