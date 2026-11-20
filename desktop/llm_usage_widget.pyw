@@ -201,6 +201,42 @@ def already_running():
         return False
 
 
+SHOW_REQUEST = Path.home() / ".llm_usage_widget.show"
+
+
+def ask_running_widget_to_show(timeout=5.0):
+    """이미 떠 있는 위젯에 '화면에 나와 줘'라고 부탁. 그 위젯이 받아 가면 True"""
+    try:
+        SHOW_REQUEST.write_text("show", encoding="utf-8")
+    except OSError:
+        return False
+    end = time.time() + timeout
+    while time.time() < end:
+        if not SHOW_REQUEST.exists():
+            return True
+        time.sleep(0.2)
+    try:
+        SHOW_REQUEST.unlink()   # 받아 가지 않았으면 (응답 없음 / 예전 버전) 치워 둠
+    except OSError:
+        pass
+    return False
+
+
+def on_screen(x, y):
+    """창 왼쪽 위 근처가 어느 모니터 안에 있는지"""
+    if IS_WIN:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u = ctypes.windll.user32
+            u.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+            u.MonitorFromPoint.restype = ctypes.c_void_p
+            return bool(u.MonitorFromPoint(wintypes.POINT(int(x) + 20, int(y) + 10), 0))  # 0 = 없으면 NULL
+        except Exception:
+            return True
+    return None   # 다른 OS는 Tk 화면 크기로 판단
+
+
 # ─── 네트워크 공통 ─────────────────────────────────────
 _ca_lock = threading.Lock()
 _ca_path = False   # False = 아직 정하지 않음
@@ -843,7 +879,10 @@ class Widget:
         self.canvas = tk.Canvas(r, bg="systemTransparent" if self.alpha_mode else BG,
                                 highlightthickness=0, bd=0)
         self.canvas.pack()
-        r.geometry(f"+{self.cfg.get('x', 40)}+{self.cfg.get('y', 40)}")
+        x, y = self.cfg.get("x", 40), self.cfg.get("y", 40)
+        if on_screen(x, y) is False:   # 모니터를 빼는 등으로 저장된 자리가 화면 밖이면
+            x, y = 40, 40
+        r.geometry(f"+{x}+{y}")
 
         cv = self.canvas
         cv.bind("<ButtonPress-1>", self.drag_start)
@@ -927,9 +966,33 @@ class Widget:
 
     def keep_on_top(self):
         """다른 창(작업 표시줄, 다른 '항상 위' 창 등)에 밀려 뒤로 가지 않도록 주기적으로 다시 맨 앞으로"""
-        if not self._hold_top:
+        if SHOW_REQUEST.exists():   # 위젯 파일을 다시 실행함
+            try:
+                SHOW_REQUEST.unlink()
+            except OSError:
+                pass
+            self.bring_back()
+        elif not self._hold_top:
             self.raise_top()
         self.root.after(2000, self.keep_on_top)
+
+    def bring_back(self):
+        """최소화됐거나 화면 밖에 있어도 보이는 자리로 불러오고, 숫자를 한 번 섞어 여기 있다고 알려 줌"""
+        r = self.root
+        r.deiconify()
+        x, y = r.winfo_x(), r.winfo_y()
+        visible = on_screen(x, y)
+        if visible is None:
+            visible = 0 <= x + 20 < r.winfo_screenwidth() and 0 <= y + 10 < r.winfo_screenheight()
+        if not visible:
+            r.geometry("+40+40")
+            self.cfg["x"], self.cfg["y"] = 40, 40
+            save_config(self.cfg)
+        r.lift()
+        self.raise_top()
+        for p in self.visible():
+            for slot in range(2):
+                self.shuffle_flaps((p, slot, "v"))
 
     # ── 투명도
     def opacity(self):
@@ -1594,5 +1657,14 @@ if __name__ == "__main__":
         except Exception:
             pass
     if already_running():
+        # 이미 떠 있으면 그 위젯을 앞으로 불러오고 끝. 응답이 없으면 (멈췄거나 예전 버전) 알려 줌
+        if not ask_running_widget_to_show():
+            _r = tk.Tk()
+            _r.withdraw()
+            where = ("작업 관리자(Ctrl+Shift+Esc) → 세부 정보에서 pythonw.exe를" if IS_WIN
+                     else "활성 상태 보기에서 Python을")
+            messagebox.showinfo("AI 사용량", "위젯이 이미 실행 중인데 응답이 없어요.\n"
+                                f"{where} 종료한 뒤 다시 실행해 주세요.")
+            _r.destroy()
         sys.exit(0)
     Widget().run()
