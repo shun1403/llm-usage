@@ -1649,7 +1649,7 @@ class Widget:
         self.root.mainloop()
 
 
-if __name__ == "__main__":
+def main():
     if IS_WIN:
         try:
             import ctypes
@@ -1657,14 +1657,22 @@ if __name__ == "__main__":
         except Exception:
             pass
     if already_running():
-        # 이미 떠 있으면 그 위젯을 앞으로 불러오고 끝. 응답이 없으면 (멈췄거나 예전 버전) 알려 줌
-        if not ask_running_widget_to_show():
-            _r = tk.Tk()
-            _r.withdraw()
-            where = ("작업 관리자(Ctrl+Shift+Esc) → 세부 정보에서 pythonw.exe를" if IS_WIN
-                     else "활성 상태 보기에서 Python을")
-            messagebox.showinfo("AI 사용량", "위젯이 이미 실행 중인데 응답이 없어요.\n"
-                                f"{where} 종료한 뒤 다시 실행해 주세요.")
-            _r.destroy()
-        sys.exit(0)
+        # 이미 떠 있으면 그 위젯을 앞으로 불러오고 끝.
+        # 응답이 없으면 (멈췄거나 예전 버전) 알려 주고, 원하면 그래도 새로 띄움 — 잠금 때문에 영영 못 켜는 일이 없게
+        if ask_running_widget_to_show():
+            return
+        r = tk.Tk()
+        r.withdraw()
+        where = ("작업 관리자(Ctrl+Shift+Esc) → 세부 정보에서 pythonw.exe를" if IS_WIN
+                 else "활성 상태 보기에서 Python을")
+        go = messagebox.askyesno("AI 사용량", "위젯이 이미 실행 중인데 응답이 없어요.\n"
+                                 f"{where} 종료하면 깨끗하게 다시 켤 수 있어요.\n\n"
+                                 "그래도 지금 새로 띄울까요?")
+        r.destroy()
+        if not go:
+            return
     Widget().run()
+
+
+if __name__ == "__main__":
+    main()
