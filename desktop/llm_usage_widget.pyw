@@ -843,6 +843,8 @@ class Widget:
         self.anim_job = None
         self.retry_job = None
         self.last_hover = 0.0
+        self._wheel_t = 0.0          # 마지막 휠 이벤트 시각 (트랙패드 한 번 쓸기를 한 동작으로 묶기)
+        self._wheel_up = None
         self._drag = None
         self._press = None
         self._press_btn = False
@@ -1077,8 +1079,17 @@ class Widget:
         self.set_opacity(self.opacity() + 0.1 * direction)
 
     def on_wheel(self, e):
-        if e.delta:
-            self.step_opacity(1 if e.delta > 0 else -1)
+        """휠 한 칸에 10%씩. 트랙패드는 한 번 쓸 때 작은 이벤트가 수십 개 쏟아지므로,
+        잠깐(0.25초) 멈췄다 다시 굴리거나 방향을 바꿀 때만 한 단계씩 바꿔요.
+        Windows 일반 마우스 휠(120 단위)은 예전처럼 한 칸마다 바뀌어요."""
+        if not e.delta:
+            return
+        up = e.delta > 0
+        now = time.perf_counter()
+        new_gesture = now - self._wheel_t > 0.25 or up != self._wheel_up
+        self._wheel_t, self._wheel_up = now, up
+        if new_gesture or (IS_WIN and e.delta % 120 == 0):
+            self.step_opacity(1 if up else -1)
 
     def toggle_reveal(self):
         self.cfg["hover_reveal"] = self.reveal_var.get()
